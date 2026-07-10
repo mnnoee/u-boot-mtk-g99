@@ -208,7 +208,18 @@
 	status = "okay";
 };
 
-/* TODO: Buttons use MediaTek keypad controller (kp@10010000)
- * which requires a custom driver. GPIO pins 112/113 don't work.
- * Stock LK uses kpd_gpio_index from DTB for keypad matrix.
- * For now, interact via UART or USB serial console (ACM). */
+/ {
+	volume-down {
+		compatible = "mediatek,mt6779-keypad";
+		linux,code = <KEY_VOLUMEDOWN>;
+		mediatek,matrix-val = <0xbfdf>;
+		mediatek,matrix-reg = <0x0c>;
+	};
+
+	volume-up {
+		compatible = "mediatek,mt6779-keypad";
+		linux,code = <KEY_VOLUMEUP>;
+		mediatek,matrix-val = <0xdfef>;
+		mediatek,matrix-reg = <0x0c>;
+	};
+};
