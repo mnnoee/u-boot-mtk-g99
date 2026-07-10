@@ -52,6 +52,10 @@ struct mtk_musb_glue {
 	USBPHY_WRITE8(offset, (USBPHY_READ8(offset)) | (mask))
 #define USBPHY_CLR8(offset, mask)	\
 	USBPHY_WRITE8(offset, (USBPHY_READ8(offset)) & (~(mask)))
+#define USBPHY_READ32(offset)	 \
+	readl((void *)(USB20_PHY_BASE + (offset)))
+#define USBPHY_WRITE32(offset, value)	\
+	writel(value, (void *)(USB20_PHY_BASE + (offset)))
 
 /*
  * MT6789 USB PHY calibration values (from vendor firmware DTB)
@@ -70,23 +74,24 @@ struct mtk_musb_glue {
 
 static void mt_usb_phy_calibrate(void)
 {
-	u8 reg;
+	u8 reg8;
+	u32 reg32;
 
 	/* USBPHYACR1 (0x004): set eye-vrt and eye-term */
-	reg = USBPHY_READ8(0x005);
-	reg &= ~0x77;		/* clear bits [6:4] and [2:0] */
-	reg |= (PHY_EYE_VRT << 4) | PHY_EYE_TERM;
-	USBPHY_WRITE8(0x005, reg);
+	reg8 = USBPHY_READ8(0x005);
+	reg8 &= ~0x77;		/* clear bits [6:4] and [2:0] */
+	reg8 |= (PHY_EYE_VRT << 4) | PHY_EYE_TERM;
+	USBPHY_WRITE8(0x005, reg8);
 
-	/* USBPHYACR6 (0x018): set discth and rx_sqth */
-	reg = USBPHY_READ8(0x18);
-	reg &= ~0xff;		/* clear all bits */
-	reg |= (PHY_DISCTH << 4) | PHY_RX_SQTH;
-	USBPHY_WRITE8(0x18, reg);
+	/* USBPHYACR6 (0x018): use 32-bit access for this register */
+	reg32 = USBPHY_READ32(0x018);
+	reg32 &= ~0xff;		/* clear bits [7:0] (DISCTH + SQTH) */
+	reg32 |= (PHY_DISCTH << 4) | PHY_RX_SQTH;
+	USBPHY_WRITE32(0x018, reg32);
 
 	/* Dump calibration results */
-	printf("USB PHY cal: ACR1[0x05]=%02x ACR6[0x18]=%02x\n",
-	       USBPHY_READ8(0x005), USBPHY_READ8(0x18));
+	printf("USB PHY cal: ACR1[0x05]=%02x ACR6[0x18]=%08x\n",
+	       USBPHY_READ8(0x005), USBPHY_READ32(0x018));
 }
 
 static void mt_usb_phy_poweron(void)
