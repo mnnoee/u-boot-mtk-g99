@@ -83,6 +83,10 @@ static void mt_usb_phy_calibrate(void)
 	reg &= ~0xff;		/* clear all bits */
 	reg |= (PHY_DISCTH << 4) | PHY_RX_SQTH;
 	USBPHY_WRITE8(0x18, reg);
+
+	/* Dump calibration results */
+	printf("USB PHY cal: ACR1[0x05]=%02x ACR6[0x18]=%02x\n",
+	       USBPHY_READ8(0x005), USBPHY_READ8(0x18));
 }
 
 static void mt_usb_phy_poweron(void)
