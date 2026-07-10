@@ -207,3 +207,23 @@
 &u2phy {
 	status = "okay";
 };
+
+/ {
+	gpio-keys {
+		compatible = "gpio-keys";
+
+		volume-up {
+			label = "Volume Up";
+			linux,code = <KEY_VOLUMEUP>;
+			gpios = <&gpio 112 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+		};
+
+		volume-down {
+			label = "Volume Down";
+			linux,code = <KEY_VOLUMEDOWN>;
+			gpios = <&gpio 113 GPIO_ACTIVE_LOW>;
+			debounce-interval = <15>;
+		};
+	};
+};
