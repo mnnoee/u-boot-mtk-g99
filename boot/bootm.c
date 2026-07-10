@@ -509,6 +509,22 @@ int bootm_find_images(ulong img_addr, const char *conf_ramdisk,
 			return 1;
 		}
 
+		/* Override FDT with fdt_addr_r if it contains a valid DTB */
+		if (!conf_fdt) {
+			const char *fdt_addr_str = env_get("fdt_addr_r");
+			if (fdt_addr_str) {
+				ulong fdt_r = hextoul(fdt_addr_str, NULL);
+				if (fdt_r) {
+					void *fdt_blob = map_sysmem(fdt_r, 0);
+					if (fdt_blob && fdt_check_header(fdt_blob) == 0) {
+						images.ft_addr = map_sysmem(fdt_r, 0);
+						images.ft_len = fdt_totalsize(fdt_blob);
+						printf("   Using fdt_addr_r: 0x%08lx\n", fdt_r);
+					}
+				}
+			}
+		}
+
 		/* check if FDT overlaps OS image */
 		if (check_overlap("FDT", map_to_sysmem(images.ft_addr),
 				  images.ft_len, start, size))

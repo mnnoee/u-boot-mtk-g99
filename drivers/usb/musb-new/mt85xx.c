@@ -43,7 +43,7 @@ struct mtk_musb_glue {
 /******************************************************************************
  * phy settings
  ******************************************************************************/
-#define USB20_PHY_BASE			0x11110800
+#define USB20_PHY_BASE			0x11f40000
 #define USBPHY_READ8(offset)	 \
 	readb((void *)(USB20_PHY_BASE + (offset)))
 #define USBPHY_WRITE8(offset, value)	\
@@ -314,13 +314,22 @@ static struct musb_hdrc_config musb_config = {
 
 static int musb_usb_probe(struct udevice *dev)
 {
-	struct mtk_musb_glue *glue = dev_get_priv(dev);
-	struct musb_host_data *host = &glue->mdata;
+	struct mtk_musb_glue *glue;
+	struct musb_host_data *host;
 	struct musb_hdrc_platform_data pdata;
-	void *base = dev_read_addr_ptr(dev);
+	void *base;
 	int ret;
 
-	DBG_I("%s():\n", __func__);
+	glue = dev_get_priv(dev);
+	host = &glue->mdata;
+
+	base = dev_read_addr_ptr(dev);
+	if (!base) {
+		/* Fallback: use physical address directly if map_sysmem fails */
+		fdt_addr_t addr = dev_read_addr(dev);
+		if (addr != FDT_ADDR_T_NONE)
+			base = (void *)(uintptr_t)addr;
+	}
 
 #ifdef CONFIG_USB_MUSB_HOST
 	struct usb_bus_priv *priv = dev_get_uclass_priv(dev);
@@ -387,6 +396,36 @@ static int musb_usb_remove(struct udevice *dev)
 	musb_stop(host->host);
 	free(host->host);
 	host->host = NULL;
+
+	return 0;
+}
+
+/*
+ * Board USB init - triggers DM probe of MUSB device so that
+ * musb_register() sets the static 'gadget' variable used by
+ * the old-style usb_gadget_register_driver path.
+ */
+int board_usb_init(int index, enum usb_init_type init)
+{
+	struct udevice *phy_dev;
+	struct udevice *dev;
+	int ret;
+
+	if (init != USB_INIT_DEVICE)
+		return -ENODEV;
+
+	/* Probe PHY first - it's a child of usb0@11200000 */
+	ret = uclass_get_device_by_name(UCLASS_PHY, "t-phy@11f40000", &phy_dev);
+	if (ret)
+		printf("MUSB: PHY probe failed: %d (non-fatal)\n", ret);
+	else
+		printf("MUSB: PHY probed OK\n");
+
+	ret = uclass_get_device_by_seq(UCLASS_USB_GADGET_GENERIC, index, &dev);
+	if (ret) {
+		printf("MUSB: board_usb_init: uclass_get_device failed: %d\n", ret);
+		return ret;
+	}
 
 	return 0;
 }

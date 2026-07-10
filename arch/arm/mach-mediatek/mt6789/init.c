@@ -34,7 +34,6 @@ int mtk_soc_early_init(void)
 	return 0;
 }
 
-/*
 void reset_cpu(void)
 {
 	struct udevice *wdt;
@@ -43,10 +42,10 @@ void reset_cpu(void)
 		psci_system_reset();
 	} else {
 		uclass_first_device(UCLASS_WDT, &wdt);
-	if (wdt)
-		wdt_expire_now(wdt, 0);
+		if (wdt)
+			wdt_expire_now(wdt, 0);
 	}
-} */
+}
 
 int print_cpuinfo(void)
 {
@@ -158,8 +157,8 @@ static struct mm_region mt6789_mem_map[] = {
 	},
 	{
 		/* Framebuffer Reserved */
-		.virt = 0xfe0d0000UL,
-		.phys = 0xfe0d0000UL,
+		.virt = 0xfe0c8000UL,
+		.phys = 0xfe0c8000UL,
 		.size = 0x01f2f000UL,
 		.attrs = PTE_BLOCK_MEMTYPE(MT_NORMAL_NC) |
 		PTE_BLOCK_INNER_SHARE | PTE_BLOCK_PXN | PTE_BLOCK_UXN

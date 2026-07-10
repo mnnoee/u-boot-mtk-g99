@@ -2316,4 +2316,10 @@ __acquires(musb->lock)
 	(void) musb_gadget_vbus_draw(&musb->g,
 			is_otg_enabled(musb) ? 8 : 100);
 #endif
+
+#ifdef __UBOOT__
+	/* Re-enable pullup after reset if it was on before */
+	if (musb->softconnect)
+		musb_pullup(musb, 1);
+#endif
 }
