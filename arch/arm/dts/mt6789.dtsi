@@ -356,18 +356,20 @@
 		};
 
 		u2phy: t-phy@11f40000 {
-			compatible = "mediatek,generic-tphy-v2";
-			#address-cells = <2>;
-			#size-cells = <2>;
-			ranges;
+			compatible = "mediatek,mt6789-tphy",
+			             "mediatek,generic-tphy-v2";
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0 0 0x11f40000 0x1000>;
 			status = "okay";
 
 			u2port0: usb-phy@0 {
-				reg = <0 0x11f40000 0 0x700>;
+				reg = <0x0 0x700>;
 				clocks = <&clk26m>;
 				clock-names = "ref";
 				#phy-cells = <1>;
 				status = "okay";
+				mediatek,eye-src = <4>;
 				mediatek,eye-vrt = <4>;
 				mediatek,eye-term = <4>;
 				mediatek,discth = <7>;
