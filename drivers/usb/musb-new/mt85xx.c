@@ -41,9 +41,18 @@ struct mtk_musb_glue {
 #define to_mtk_musb_glue(d)	container_of(d, struct mtk_musb_glue, dev)
 
 /******************************************************************************
- * phy settings
+ * phy settings — MT6789 USB20 PHY
+ *
+ * Register bank at 0x11f40300+ (from stock LK binary analysis):
+ *   0x318 — PHY control register 1
+ *   0x31c — PHY control register 2
+ *   0x320 — PHY control register 3
+ *   0x368 — PHY analog control
+ *   0x36c — PHY calibration (eye-vrt, eye-term, discth, rx_sqth)
  ******************************************************************************/
 #define USB20_PHY_BASE			0x11f40000
+
+/* Byte-access macros (for 0x000-0x0FF range) */
 #define USBPHY_READ8(offset)	 \
 	readb((void *)(USB20_PHY_BASE + (offset)))
 #define USBPHY_WRITE8(offset, value)	\
@@ -52,172 +61,109 @@ struct mtk_musb_glue {
 	USBPHY_WRITE8(offset, (USBPHY_READ8(offset)) | (mask))
 #define USBPHY_CLR8(offset, mask)	\
 	USBPHY_WRITE8(offset, (USBPHY_READ8(offset)) & (~(mask)))
+
+/* 32-bit access macros (for 0x300+ range — required for MT6789) */
 #define USBPHY_READ32(offset)	 \
 	readl((void *)(USB20_PHY_BASE + (offset)))
 #define USBPHY_WRITE32(offset, value)	\
 	writel(value, (void *)(USB20_PHY_BASE + (offset)))
 
-/*
- * MT6789 USB PHY calibration values (from vendor firmware DTB)
- * These match mediatek,eye-vrt, mediatek,eye-term, etc. properties.
- *
- * Register map (relative to USB20_PHY_BASE 0x11f40000):
- *   0x004 USBPHYACR1 [14:12] = VRT_SEL (eye-vrt)
- *                          [10:8] = TERM_SEL (eye-term)
- *   0x018 USBPHYACR6 [ 7:4]  = DISCTH (discth)
- *                      [ 3:0]  = SQTH (rx_sqth)
- */
-#define PHY_EYE_VRT		4
-#define PHY_EYE_TERM		4
-#define PHY_DISCTH		7
-#define PHY_RX_SQTH		5
-
-static void mt_usb_phy_calibrate(void)
-{
-	u8 reg8;
-	u32 reg32;
-
-	/* USBPHYACR1 (0x004): set eye-vrt and eye-term */
-	reg8 = USBPHY_READ8(0x005);
-	reg8 &= ~0x77;		/* clear bits [6:4] and [2:0] */
-	reg8 |= (PHY_EYE_VRT << 4) | PHY_EYE_TERM;
-	USBPHY_WRITE8(0x005, reg8);
-
-	/* USBPHYACR6 (0x018): use 32-bit access for this register */
-	reg32 = USBPHY_READ32(0x018);
-	reg32 &= ~0xff;		/* clear bits [7:0] (DISCTH + SQTH) */
-	reg32 |= (PHY_DISCTH << 4) | PHY_RX_SQTH;
-	USBPHY_WRITE32(0x018, reg32);
-
-	/* Dump calibration results */
-	printf("USB PHY cal: ACR1[0x05]=%02x ACR6[0x18]=%08x\n",
-	       USBPHY_READ8(0x005), USBPHY_READ32(0x018));
-}
+/* MT6789 PHY register offsets (from stock LK binary) */
+#define PHY_REG_318		0x318
+#define PHY_REG_31c		0x31c
+#define PHY_REG_320		0x320
+#define PHY_REG_368		0x368
+#define PHY_REG_36c		0x36c
 
 static void mt_usb_phy_poweron(void)
 {
-	/* Apply PHY calibration values (eye-vrt, eye-term, discth, rx_sqth) */
-	mt_usb_phy_calibrate();
+	u32 val;
 
-	/*
-	 * switch to USB function.
-	 * (system register, force ip into usb mode).
-	 */
-	USBPHY_CLR8(0x6b, 0x04);
-	USBPHY_CLR8(0x6e, 0x01);
-	USBPHY_CLR8(0x21, 0x03);
+	/* From stock LK FUN_0004a1f0 */
+	val = USBPHY_READ32(PHY_REG_368);
+	val &= 0xfbfbffff;
+	USBPHY_WRITE32(PHY_REG_368, val);
 
-	/* RG_USB20_BC11_SW_EN = 1'b0 */
-	USBPHY_SET8(0x22, 0x04);
-	USBPHY_CLR8(0x1a, 0x80);
+	val = USBPHY_READ32(PHY_REG_36c);
+	val &= 0xfffeffff;
+	USBPHY_WRITE32(PHY_REG_36c, val);
 
-	/* RG_USB20_DP_100K_EN = 1'b0 */
-	USBPHY_CLR8(0x22, 0x03);
+	val = USBPHY_READ32(PHY_REG_320);
+	val = (val & 0xfff8fcff) | 0x40000;
+	USBPHY_WRITE32(PHY_REG_320, val);
 
-	/*OTG enable*/
-	USBPHY_SET8(0x20, 0x10);
-	/* release force suspendm */
-	USBPHY_CLR8(0x6a, 0x04);
+	val = USBPHY_READ32(PHY_REG_318);
+	val = (val & 0xff7fffff) | 0x100000;
+	USBPHY_WRITE32(PHY_REG_318, val);
 
 	mdelay(800);
-
-	/* force enter device mode */
-	USBPHY_CLR8(0x6c, 0x10);
-	USBPHY_SET8(0x6c, 0x2E);
-	USBPHY_SET8(0x6d, 0x3E);
 }
 
 static void mt_usb_phy_savecurrent(void)
 {
-	/*
-	 * switch to USB function.
-	 * (system register, force ip into usb mode).
-	 */
-	USBPHY_CLR8(0x6b, 0x04);
-	USBPHY_CLR8(0x6e, 0x01);
-	USBPHY_CLR8(0x21, 0x03);
+	u32 val;
 
-	/* release force suspendm */
-	USBPHY_CLR8(0x6a, 0x04);
-	USBPHY_SET8(0x68, 0x04);
-	/* RG_DPPULLDOWN./RG_DMPULLDOWN. */
-	USBPHY_SET8(0x68, 0xc0);
-	/* RG_XCVRSEL[1:0] = 2'b01 */
-	USBPHY_CLR8(0x68, 0x30);
-	USBPHY_SET8(0x68, 0x10);
-	/* RG_TERMSEL = 1'b1 */
-	USBPHY_SET8(0x68, 0x04);
-	/* RG_DATAIN[3:0] = 4'b0000 */
-	USBPHY_CLR8(0x69, 0x3c);
+	/* From stock LK FUN_0004a240 */
+	val = USBPHY_READ32(PHY_REG_318);
+	val &= 0xff6fffff;
+	USBPHY_WRITE32(PHY_REG_318, val);
 
-	/*
-	 * force_dp_pulldown, force_dm_pulldown,
-	 * force_xcversel, force_termsel.
-	 */
-	USBPHY_SET8(0x6a, 0xba);
+	val = USBPHY_READ32(PHY_REG_36c);
+	val &= 0xfffeffff;
+	USBPHY_WRITE32(PHY_REG_36c, val);
 
-	/* RG_USB20_BC11_SW_EN = 1'b0 */
-	USBPHY_CLR8(0x1a, 0x80);
-	/* RG_USB20_OTG_VBUSSCMP_EN = 1'b0 */
-	USBPHY_CLR8(0x1a, 0x10);
+	val = USBPHY_READ32(PHY_REG_320);
+	val &= 0xfffffcff;
+	USBPHY_WRITE32(PHY_REG_320, val);
+
+	val = USBPHY_READ32(PHY_REG_368);
+	val = (val & 0xfb41c303) | 0xbe00dc;
+	USBPHY_WRITE32(PHY_REG_368, val);
 
 	mdelay(800);
 
-	USBPHY_CLR8(0x6a, 0x04);
-	/* rg_usb20_pll_stable = 1 */
-	//USBPHY_SET8(0x63, 0x02);
+	val = USBPHY_READ32(PHY_REG_368);
+	val &= 0xfffffff7;
+	USBPHY_WRITE32(PHY_REG_368, val);
 
 	mdelay(1);
-
-	/* force suspendm = 1 */
-	//USBPHY_SET8(0x6a, 0x04);
 }
 
 static void mt_usb_phy_recover(void)
 {
-	/* clean PUPD_BIST_EN */
-	/* PUPD_BIST_EN = 1'b0 */
-	/* PMIC will use it to detect charger type */
-	USBPHY_CLR8(0x1d, 0x10);
+	u32 val;
 
-	/* force_uart_en = 1'b0 */
-	USBPHY_CLR8(0x6b, 0x04);
-	/* RG_UART_EN = 1'b0 */
-	USBPHY_CLR8(0x6e, 0x01);
-	/* force_uart_en = 1'b0 */
-	USBPHY_CLR8(0x6a, 0x04);
+	/* From stock LK FUN_0004a2bc */
+	val = USBPHY_READ32(PHY_REG_368);
+	val &= 0xfb41c30b;
+	USBPHY_WRITE32(PHY_REG_368, val);
 
-	USBPHY_CLR8(0x21, 0x03);
-	USBPHY_CLR8(0x68, 0xf4);
+	val = USBPHY_READ32(PHY_REG_36c);
+	val &= 0xfffeffff;
+	USBPHY_WRITE32(PHY_REG_36c, val);
 
-	/* RG_DATAIN[3:0] = 4'b0000 */
-	USBPHY_CLR8(0x69, 0x3c);
+	val = USBPHY_READ32(PHY_REG_31c);
+	val &= 0xffffefff;
+	USBPHY_WRITE32(PHY_REG_31c, val);
 
-	USBPHY_CLR8(0x6a, 0xba);
+	val = USBPHY_READ32(PHY_REG_320);
+	val &= 0xfffffcff;
+	USBPHY_WRITE32(PHY_REG_320, val);
 
-	/* RG_USB20_BC11_SW_EN = 1'b0 */
-	USBPHY_CLR8(0x1a, 0x80);
-	/* RG_USB20_OTG_VBUSSCMP_EN = 1'b1 */
-	USBPHY_SET8(0x1a, 0x10);
-
-	/*OTG enable*/
-	USBPHY_SET8(0x20, 0x10);
-	/* release force suspendm */
-	USBPHY_CLR8(0x6a, 0x04);
-
-	/* Apply PHY calibration values */
-	mt_usb_phy_calibrate();
+	val = USBPHY_READ32(PHY_REG_318);
+	val = (val & 0xff7fffff) | 0x100000;
+	USBPHY_WRITE32(PHY_REG_318, val);
 
 	mdelay(800);
 
-	/* force enter device mode */
-	USBPHY_CLR8(0x6c, 0x10);
-	USBPHY_SET8(0x6c, 0x2E);
-	USBPHY_SET8(0x6d, 0x3E);
+	/* Calibration: eye-vrt, eye-term, discth, rx_sqth */
+	val = USBPHY_READ32(PHY_REG_36c);
+	val = (val & 0xffffffcf) | 0x3f2f;
+	USBPHY_WRITE32(PHY_REG_36c, val);
 
-	/* enable VRT internal R architecture */
-	/* RG_USB20_INTR_EN = 1'b1 */
-	USBPHY_SET8(0x00, 0x20);
+	printf("USB PHY: reg318=%08x reg320=%08x reg368=%08x reg36c=%08x\n",
+	       USBPHY_READ32(PHY_REG_318), USBPHY_READ32(PHY_REG_320),
+	       USBPHY_READ32(PHY_REG_368), USBPHY_READ32(PHY_REG_36c));
 }
 
 /******************************************************************************
