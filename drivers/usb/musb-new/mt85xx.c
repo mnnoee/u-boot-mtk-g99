@@ -53,8 +53,43 @@ struct mtk_musb_glue {
 #define USBPHY_CLR8(offset, mask)	\
 	USBPHY_WRITE8(offset, (USBPHY_READ8(offset)) & (~(mask)))
 
+/*
+ * MT6789 USB PHY calibration values (from vendor firmware DTB)
+ * These match mediatek,eye-vrt, mediatek,eye-term, etc. properties.
+ *
+ * Register map (relative to USB20_PHY_BASE 0x11f40000):
+ *   0x004 USBPHYACR1 [14:12] = VRT_SEL (eye-vrt)
+ *                          [10:8] = TERM_SEL (eye-term)
+ *   0x018 USBPHYACR6 [ 7:4]  = DISCTH (discth)
+ *                      [ 3:0]  = SQTH (rx_sqth)
+ */
+#define PHY_EYE_VRT		4
+#define PHY_EYE_TERM		4
+#define PHY_DISCTH		7
+#define PHY_RX_SQTH		5
+
+static void mt_usb_phy_calibrate(void)
+{
+	u8 reg;
+
+	/* USBPHYACR1 (0x004): set eye-vrt and eye-term */
+	reg = USBPHY_READ8(0x005);
+	reg &= ~0x77;		/* clear bits [6:4] and [2:0] */
+	reg |= (PHY_EYE_VRT << 4) | PHY_EYE_TERM;
+	USBPHY_WRITE8(0x005, reg);
+
+	/* USBPHYACR6 (0x018): set discth and rx_sqth */
+	reg = USBPHY_READ8(0x18);
+	reg &= ~0xff;		/* clear all bits */
+	reg |= (PHY_DISCTH << 4) | PHY_RX_SQTH;
+	USBPHY_WRITE8(0x18, reg);
+}
+
 static void mt_usb_phy_poweron(void)
 {
+	/* Apply PHY calibration values (eye-vrt, eye-term, discth, rx_sqth) */
+	mt_usb_phy_calibrate();
+
 	/*
 	 * switch to USB function.
 	 * (system register, force ip into usb mode).
@@ -67,7 +102,6 @@ static void mt_usb_phy_poweron(void)
 	USBPHY_SET8(0x22, 0x04);
 	USBPHY_CLR8(0x1a, 0x80);
 
-	/* RG_USB20_DP_100K_EN = 1'b0 */
 	/* RG_USB20_DP_100K_EN = 1'b0 */
 	USBPHY_CLR8(0x22, 0x03);
 
@@ -162,9 +196,9 @@ static void mt_usb_phy_recover(void)
 	/* release force suspendm */
 	USBPHY_CLR8(0x6a, 0x04);
 
-	//HQA adjustment
-	USBPHY_CLR8(0x18, 0x08);
-	USBPHY_SET8(0x18, 0x06);
+	/* Apply PHY calibration values */
+	mt_usb_phy_calibrate();
+
 	mdelay(800);
 
 	/* force enter device mode */
