@@ -157,15 +157,20 @@ static void mt_usb_phy_recover(void)
 	/* RG_USB20_OTG_VBUSSCMP_EN = 1'b1 */
 	USBPHY_SET8(0x1a, 0x10);
 
+	/*OTG enable*/
+	USBPHY_SET8(0x20, 0x10);
+	/* release force suspendm */
+	USBPHY_CLR8(0x6a, 0x04);
+
 	//HQA adjustment
 	USBPHY_CLR8(0x18, 0x08);
 	USBPHY_SET8(0x18, 0x06);
 	mdelay(800);
 
 	/* force enter device mode */
-	//USBPHY_CLR8(0x6c, 0x10);
-	//USBPHY_SET8(0x6c, 0x2E);
-	//USBPHY_SET8(0x6d, 0x3E);
+	USBPHY_CLR8(0x6c, 0x10);
+	USBPHY_SET8(0x6c, 0x2E);
+	USBPHY_SET8(0x6d, 0x3E);
 
 	/* enable VRT internal R architecture */
 	/* RG_USB20_INTR_EN = 1'b1 */
