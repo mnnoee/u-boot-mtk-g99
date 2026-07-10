@@ -208,22 +208,7 @@
 	status = "okay";
 };
 
-/ {
-	gpio-keys {
-		compatible = "gpio-keys";
-
-		volume-up {
-			label = "Volume Up";
-			linux,code = <KEY_VOLUMEUP>;
-			gpios = <&gpio 112 GPIO_ACTIVE_LOW>;
-			debounce-interval = <15>;
-		};
-
-		volume-down {
-			label = "Volume Down";
-			linux,code = <KEY_VOLUMEDOWN>;
-			gpios = <&gpio 113 GPIO_ACTIVE_LOW>;
-			debounce-interval = <15>;
-		};
-	};
-};
+/* TODO: Buttons use MediaTek keypad controller (kp@10010000)
+ * which requires a custom driver. GPIO pins 112/113 don't work.
+ * Stock LK uses kpd_gpio_index from DTB for keypad matrix.
+ * For now, interact via UART or USB serial console (ACM). */
