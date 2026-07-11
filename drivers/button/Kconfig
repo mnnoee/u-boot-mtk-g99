@@ -49,3 +49,11 @@ config BUTTON_QCOM_PMIC
 	  respectively, allowing navigation of bootmenu with buttons on device.
 
 endmenu
+
+config BUTTON_MTK_KP
+	bool "MediaTek keypad controller button"
+	depends on BUTTON
+	help
+	  Enable support for buttons connected to MediaTek keypad
+	  controller (kp@10010000). Reads matrix scanning registers
+	  to detect button presses.

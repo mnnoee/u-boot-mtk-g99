@@ -208,18 +208,24 @@
 	status = "okay";
 };
 
-/ {
+&soc {
 	volume-down {
 		compatible = "mediatek,mt6779-keypad";
+		reg = <0x10010000 0x1000>;
+		label = "vdown";
 		linux,code = <KEY_VOLUMEDOWN>;
 		mediatek,matrix-val = <0xbfdf>;
 		mediatek,matrix-reg = <0x0c>;
+		status = "okay";
 	};
 
 	volume-up {
 		compatible = "mediatek,mt6779-keypad";
+		reg = <0x10010000 0x1000>;
+		label = "vup";
 		linux,code = <KEY_VOLUMEUP>;
 		mediatek,matrix-val = <0xdfef>;
 		mediatek,matrix-reg = <0x0c>;
+		status = "okay";
 	};
 };

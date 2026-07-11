@@ -106,12 +106,16 @@ static char *bootmenu_choice_entry(void *data)
 			menu->last_active = menu->active;
 			if (menu->active > 0)
 				--menu->active;
+			else
+				menu->active = menu->count - 1;
 			/* no menu key selected, regenerate menu */
 			return NULL;
 		case BKEY_DOWN:
 			menu->last_active = menu->active;
 			if (menu->active < menu->count - 1)
 				++menu->active;
+			else
+				menu->active = 0;
 			/* no menu key selected, regenerate menu */
 			return NULL;
 		case BKEY_SHORTCUT:

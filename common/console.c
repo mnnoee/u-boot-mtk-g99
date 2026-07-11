@@ -24,6 +24,7 @@
 #include <watchdog.h>
 #include <asm/global_data.h>
 #include <linux/delay.h>
+#include <button.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -598,6 +599,49 @@ int fprintf(int file, const char *fmt, ...)
 	return i;
 }
 
+/** Button input integration for bootmenu navigation ***********************/
+
+#define BUTTON_BUF_SIZE 8
+static char button_buf[BUTTON_BUF_SIZE];
+static int button_buf_head, button_buf_tail;
+static int btn_vup_prev, btn_vdown_prev;
+
+static void button_input_poll(void)
+{
+	struct udevice *dev;
+	int vup, vdown;
+
+	if (button_get_by_label("vup", &dev) == 0)
+		vup = (button_get_state(dev) == BUTTON_ON);
+	else
+		vup = 0;
+
+	if (button_get_by_label("vdown", &dev) == 0)
+		vdown = (button_get_state(dev) == BUTTON_ON);
+	else
+		vdown = 0;
+
+	if (vup && !btn_vup_prev) {
+		button_buf[button_buf_tail] = '\r';
+		button_buf_tail = (button_buf_tail + 1) % BUTTON_BUF_SIZE;
+	}
+	if (vdown && !btn_vdown_prev) {
+		int free = (button_buf_head - button_buf_tail - 1 + BUTTON_BUF_SIZE) %
+			  BUTTON_BUF_SIZE;
+		if (free >= 3) {
+			button_buf[button_buf_tail] = '\e';
+			button_buf_tail = (button_buf_tail + 1) % BUTTON_BUF_SIZE;
+			button_buf[button_buf_tail] = '[';
+			button_buf_tail = (button_buf_tail + 1) % BUTTON_BUF_SIZE;
+			button_buf[button_buf_tail] = 'B';
+			button_buf_tail = (button_buf_tail + 1) % BUTTON_BUF_SIZE;
+		}
+	}
+
+	btn_vup_prev = vup;
+	btn_vdown_prev = vdown;
+}
+
 /** U-Boot INITIAL CONSOLE-COMPATIBLE FUNCTION *****************************/
 
 int getchar(void)
@@ -609,6 +653,14 @@ int getchar(void)
 
 	if (!(gd->flags & GD_FLG_HAVE_CONSOLE))
 		return 0;
+
+	button_input_poll();
+
+	if (button_buf_head != button_buf_tail) {
+		ch = button_buf[button_buf_head];
+		button_buf_head = (button_buf_head + 1) % BUTTON_BUF_SIZE;
+		return ch;
+	}
 
 	ch = console_record_getc();
 	if (ch != -1)
@@ -630,6 +682,11 @@ int tstc(void)
 
 	if (!(gd->flags & GD_FLG_HAVE_CONSOLE))
 		return 0;
+
+	button_input_poll();
+
+	if (button_buf_head != button_buf_tail)
+		return 1;
 
 	if (console_record_tstc())
 		return 1;

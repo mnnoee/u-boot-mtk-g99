@@ -8,9 +8,8 @@
  *   Bits [15:0] of each register: 0=pressed, 1=released (active low)
  *   Total: 136 key positions (4*32 + 8)
  *
- * Matrix values from register dumps (register 0x1001000C = KP_MEM3):
- *   Volume Down: 0xbfdf (bits 5,13 low = pressed)
- *   Volume Up:   0xdfef (bits 4,12 low = pressed)
+ * Also enables essential INFRACFG_AO gate clocks for boot peripherals.
+ * Clock gate definitions from: drivers/clk/mediatek/clk-mt6789-infra_ao.c
  */
 
 #include <button.h>
@@ -19,39 +18,99 @@
 #include <linux/bitops.h>
 
 /* MediaTek KP registers (from mt6779-keypad.c) */
-#define KP_MEM1		0x0004	/* Matrix row 1 */
-#define KP_MEM2		0x0008	/* Matrix row 2 */
-#define KP_MEM3		0x000c	/* Matrix row 3 */
-#define KP_MEM4		0x0010	/* Matrix row 4 */
-#define KP_MEM5		0x0014	/* Matrix row 5 (only 8 bits) */
+#define KP_MEM1		0x0004
+#define KP_MEM2		0x0008
+#define KP_MEM3		0x000c
+#define KP_MEM4		0x0010
+#define KP_MEM5		0x0014
 
-#define KP_NUM_MEMS	5
-#define KP_NUM_BITS	136	/* 4*32 + 8 */
+/*
+ * INFRACFG_AO clock gate registers (from clk-mt6789-infra_ao.c)
+ * Base: 0x10001000
+ *
+ * Gate register groups:
+ *   IFRAO0: SET=0x80, CLR=0x84, STA=0x90
+ *   IFRAO1: SET=0x88, CLR=0x8C, STA=0x94
+ *   IFRAO2: SET=0xA4, CLR=0xA8, STA=0xAC
+ *   IFRAO3: SET=0xC0, CLR=0xC4, STA=0xC8
+ *   IFRAO4: SET=0xE0, CLR=0xE4, STA=0xE8
+ *   IFRAO5: SET=0xD0, CLR=0xD4, STA=0xD8
+ */
+#define INFRACFG_AO_BASE		0x10001000
 
-/* Matrix values for each button (active low, from register 0x1001000C) */
-#define KP_VOLUME_DOWN	0xbfdf
-#define KP_VOLUME_UP	0xdfef
+/* IFRAO gate SET registers */
+#define IFRAO0_SET_OFS			0x80
+#define IFRAO1_SET_OFS			0x88
+#define IFRAO2_SET_OFS			0xA4
+#define IFRAO4_SET_OFS			0xE0
+
+/* IFRAO0 gate bits (from clk-mt6789-infra_ao.c) */
+#define CLK_IFRAO_I2C_PSEUDO	BIT(11)
+#define CLK_IFRAO_UART0	BIT(22)
+
+/* IFRAO1 gate bits */
+#define CLK_IFRAO_SPI0		BIT(1)
+#define CLK_IFRAO_MSDC0	BIT(2)
+#define CLK_IFRAO_MSDC0_SRC	BIT(6)
+
+/* IFRAO2 gate bits */
+#define CLK_IFRAO_SSUSB		BIT(1)
+#define CLK_IFRAO_UFS		BIT(28)
+#define CLK_IFRAO_UFS_AES	BIT(29)
+
+/* IFRAO4 gate bits */
+#define CLK_IFRAO_KP		BIT(2)
 
 struct button_mtk_kp_priv {
 	void __iomem *base;
 	int linux_code;
-	u32 matrix_val;		/* Expected matrix value for this button */
-	u32 matrix_reg;		/* Register offset containing this button's bits */
+	u32 matrix_val;
+	u32 matrix_reg;
 };
 
-static int button_mtk_kp_get_state(struct udevice *dev)
+static void mt6789_enable_essential_clocks(void)
+{
+	u32 val;
+
+	/* IFRAO0: UART0, I2C */
+	val = readl(INFRACFG_AO_BASE + IFRAO0_SET_OFS);
+	val |= CLK_IFRAO_I2C_PSEUDO | CLK_IFRAO_UART0;
+	writel(val, INFRACFG_AO_BASE + IFRAO0_SET_OFS);
+
+	/* IFRAO1: SPI0, MSDC0, MSDC0_SRC */
+	val = readl(INFRACFG_AO_BASE + IFRAO1_SET_OFS);
+	val |= CLK_IFRAO_SPI0 | CLK_IFRAO_MSDC0 | CLK_IFRAO_MSDC0_SRC;
+	writel(val, INFRACFG_AO_BASE + IFRAO1_SET_OFS);
+
+	/* IFRAO2: SSUSB (USB), UFS, UFS_AES */
+	val = readl(INFRACFG_AO_BASE + IFRAO2_SET_OFS);
+	val |= CLK_IFRAO_SSUSB | CLK_IFRAO_UFS | CLK_IFRAO_UFS_AES;
+	writel(val, INFRACFG_AO_BASE + IFRAO2_SET_OFS);
+
+	/* IFRAO4: Keypad */
+	val = readl(INFRACFG_AO_BASE + IFRAO4_SET_OFS);
+	val |= CLK_IFRAO_KP;
+	writel(val, INFRACFG_AO_BASE + IFRAO4_SET_OFS);
+
+	debug("MT6789 clocks: IFRAO0=0x%08x IFRAO1=0x%08x IFRAO2=0x%08x IFRAO4=0x%08x\n",
+	      readl(INFRACFG_AO_BASE + IFRAO0_SET_OFS),
+	      readl(INFRACFG_AO_BASE + IFRAO1_SET_OFS),
+	      readl(INFRACFG_AO_BASE + IFRAO2_SET_OFS),
+	      readl(INFRACFG_AO_BASE + IFRAO4_SET_OFS));
+}
+
+static enum button_state_t button_mtk_kp_get_state(struct udevice *dev)
 {
 	struct button_mtk_kp_priv *priv = dev_get_priv(dev);
 	u32 val;
 
 	if (!priv || !priv->base)
-		return -ENODATA;
+		return BUTTON_OFF;
 
-	/* Read the matrix register that contains this button */
 	val = readl(priv->base + priv->matrix_reg);
 
-	/* Check if our specific button bits are active (0 = pressed) */
-	if ((val & priv->matrix_val) != priv->matrix_val)
+	/* Active-low: bits go LOW when button is pressed */
+	if (val == priv->matrix_val)
 		return BUTTON_ON;
 
 	return BUTTON_OFF;
@@ -72,25 +131,48 @@ static int button_mtk_kp_probe(struct udevice *dev)
 	struct button_mtk_kp_priv *priv = dev_get_priv(dev);
 	fdt_addr_t addr;
 
-	addr = dev_read_addr(dev);
-	if (addr == FDT_ADDR_T_NONE)
-		return -EINVAL;
+	printf("KP: probe start\n");
 
+	addr = dev_read_addr(dev);
+	printf("KP: addr=0x%llx\n", (unsigned long long)addr);
+	if (addr == FDT_ADDR_T_NONE) {
+		printf("KP: bad addr\n");
+		return -EINVAL;
+	}
+
+	printf("KP: ioremap...\n");
 	priv->base = devm_ioremap(dev, addr, 0x100);
+	printf("KP: base=%p\n", priv->base);
 	if (!priv->base)
 		return -ENOMEM;
 
-	/* Read matrix value and register offset from DTS */
+	printf("KP: reading props...\n");
 	priv->matrix_val = dev_read_u32_default(dev, "mediatek,matrix-val", 0);
 	priv->matrix_reg = dev_read_u32_default(dev, "mediatek,matrix-reg", KP_MEM3);
-
-	debug("MTK KP: base=%p, code=%d, reg=0x%x, matrix=0x%04x\n",
-	      priv->base, priv->linux_code, priv->matrix_reg, priv->matrix_val);
+	printf("KP: code=%d reg=0x%x val=0x%04x\n",
+	      priv->linux_code, priv->matrix_reg, priv->matrix_val);
 
 	return 0;
 }
 
-static int button_mtk_kp_ofdata_to_plat(struct udevice *dev)
+static int button_mtk_kp_bind(struct udevice *dev)
+{
+	struct button_uc_plat *uc_plat = dev_get_uclass_plat(dev);
+	const char *label;
+
+	label = dev_read_string(dev, "label");
+	if (!label) {
+		debug("MTK KP: node %s has no label\n", dev->name);
+		return -EINVAL;
+	}
+
+	uc_plat->label = label;
+	debug("MTK KP: bound button '%s'\n", label);
+
+	return 0;
+}
+
+static int button_mtk_kp_of_to_plat(struct udevice *dev)
 {
 	struct button_mtk_kp_priv *priv = dev_get_priv(dev);
 
@@ -106,6 +188,7 @@ static const struct button_ops button_mtk_kp_ops = {
 
 static const struct udevice_id button_mtk_kp_ids[] = {
 	{ .compatible = "mediatek,mt6779-keypad" },
+	{ .compatible = "mediatek,kp" },
 	{ }
 };
 
@@ -115,6 +198,7 @@ U_BOOT_DRIVER(button_mtk_kp) = {
 	.of_match	= button_mtk_kp_ids,
 	.ops		= &button_mtk_kp_ops,
 	.priv_auto	= sizeof(struct button_mtk_kp_priv),
+	.bind		= button_mtk_kp_bind,
 	.probe		= button_mtk_kp_probe,
-	.ofdata_to_plat = button_mtk_kp_ofdata_to_plat,
+	.of_to_plat	= button_mtk_kp_of_to_plat,
 };
