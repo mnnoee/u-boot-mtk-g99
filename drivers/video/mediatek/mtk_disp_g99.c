@@ -420,17 +420,13 @@ static int mtk_disp_bind(struct udevice *dev)
 	struct video_uc_plat *plat = dev_get_uclass_plat(dev);
 
 	/*
-	 * We use a FIXED framebuffer address (from LK), so we don't need
-	 * U-Boot to allocate memory. Set size to 0 so the uclass skips
-	 * reservation and we set plat->base at probe time.
-	 *
-	 * NOTE: If size=0 causes issues, set a minimal size. The uclass
-	 * will reserve some memory but we override the base at probe.
+	 * Set size to actual framebuffer size so video uclass accepts the device.
+	 * We override plat->base at probe time with the fixed LK framebuffer address.
 	 */
-	plat->align = 0;
-	plat->size = 0;
+	plat->align = 0x1000;  /* 4KB alignment */
+	plat->size = DISP_FB_SIZE;
 
-	debug("mtk_disp: bind (no memory reservation — using fixed FB)\n");
+	printf("mtk_disp: bind (size=%u bytes)\n", plat->size);
 
 	return 0;
 }
