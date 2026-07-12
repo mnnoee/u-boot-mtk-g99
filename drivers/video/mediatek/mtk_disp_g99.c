@@ -210,10 +210,11 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	/* 7. Trigger OVL shadow reload */
 	writel(OVL_SHADOW_RELOAD, OVL0_EN);
 
-	/* 8. Enable DSI interrupts (CMD_DONE + RD_RDY).
-	 *    Offset 0x08 = DSI_INTEN. LK had this enabled.
+	/* 8. Enable DSI controller (bits 0+1 = DSI_EN).
+	 *    CRITICAL: Write to DSI_CON (0x010), NOT DSI_INTEN (0x008).
+	 *    Without this, DSI controller ignores CMDQ and panel stays frozen.
 	 */
-	writel(0x3, DSI0_INTEN);
+	writel(0x3, DSI0_CON);
 }
 
 static void mtk_disp_dsi_trigger(void)
