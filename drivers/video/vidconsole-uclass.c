@@ -305,6 +305,8 @@ static void vidconsole_escape_char(struct udevice *dev, char ch)
 		parsenum(priv->escape_buf + 1, &mode);
 
 		if (mode == 2) {
+			struct video_priv *vid_priv =
+				dev_get_uclass_priv(dev->parent);
 			int ret;
 
 			video_clear(dev->parent);
@@ -314,7 +316,7 @@ static void vidconsole_escape_char(struct udevice *dev, char ch)
 				console_puts_select_stderr(true, "[vc err: video_sync]");
 #endif
 			}
-			priv->ycur = 0;
+			priv->ycur = vid_priv->y_start_offset;
 			priv->xcur_frac = priv->xstart_frac;
 		} else {
 			debug("unsupported clear mode: %d\n", mode);

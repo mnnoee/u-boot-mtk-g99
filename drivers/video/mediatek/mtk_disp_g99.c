@@ -18,9 +18,12 @@
 #include <dm.h>
 #include <log.h>
 #include <video.h>
+#include <video_console.h>
 #include <asm/io.h>
 #include <asm/cache.h>
+#include <dm/device-internal.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
 
 /* ── Hardware register bases ─────────────────────────────────────────── */
 
@@ -32,7 +35,8 @@
 
 /* ── MMSYS registers ────────────────────────────────────────────────── */
 
-#define MMSYS_CLK_CLR		(MMSYS_BASE + 0x108)
+#define MMSYS_CLK_CLR		(MMSYS_BASE + 0x108)	/* mm0 gate clear */
+#define MMSYS_CLK_CLR_MM1	(MMSYS_BASE + 0x1A8)	/* mm1 gate clear */
 #define MMSYS_SW_RST		(MMSYS_BASE + 0x140)
 
 /* ── OVL0 registers ─────────────────────────────────────────────────── */
@@ -60,8 +64,15 @@
 /* ── DSI0 registers (MT6789-specific offsets) ────────────────────────── */
 
 #define DSI0_START		(DSI0_BASE + 0x000)
+#define DSI0_INTEN		(DSI0_BASE + 0x008)
+#define DSI0_INTSTA		(DSI0_BASE + 0x00c)
+#define DSI0_CON		(DSI0_BASE + 0x010)
+#define DSI0_MODE		(DSI0_BASE + 0x014)
 #define DSI0_CMDQ_SIZE		(DSI0_BASE + 0x060)
 #define DSI0_CMDQ		(DSI0_BASE + 0xd00)
+
+#define DSI_BUSY		BIT(31)
+#define DSI_CMD_DONE		BIT(1)
 
 /* ── Display parameters ─────────────────────────────────────────────── */
 
@@ -79,6 +90,45 @@
 
 /* Known good framebuffer address (LK default) */
 #define LK_DEFAULT_FB		0xfeabe000UL
+
+/*
+ * Diagnostic buffer in RAM — dump everything here so user can read
+ * via mtkclient after boot: mtkclient r 0x4FF00000 128
+ */
+#define DIAG_BUF_PHYS		0x4FF00000UL
+
+struct mtk_disp_diag {
+	u32 magic;		/* 0xD1A90C00 */
+	u32 version;		/* 2 */
+	u32 fb_phys;		/* framebuffer physical address */
+	u32 fb_size;		/* framebuffer size in bytes */
+	u32 bpix;		/* VIDEO_BPP32 etc */
+	u32 line_length;	/* stride in bytes */
+	u32 colour_fg;		/* foreground colour as u32 */
+	u32 colour_bg;		/* background colour as u32 */
+	u32 y_start_offset;	/* 200 */
+	u32 sync_count;		/* how many times video_sync was called */
+	u32 vc_bound;		/* 1 if vidconsole was bound */
+	u32 vc_probed;		/* 1 if vidconsole was probed */
+	u32 vc_quiet;		/* quiet flag */
+	u32 vc_ycur;		/* current y cursor position */
+	u32 vc_x_charsize;	/* font width */
+	u32 vc_y_charsize;	/* font height */
+	u32 vc_cols;		/* number of columns */
+	u32 vc_rows;		/* number of rows */
+	u32 vc_xstart_frac;	/* fractional x start */
+	u32 vc_xcur_frac;	/* fractional x cursor */
+	u32 vc_xsize_frac;	/* fractional x size */
+	u32 video_clear_done;	/* 1 if video_clear ran */
+	u32 red_bar_written;	/* 1 if red test bar was written */
+	u32 last_error;		/* last error code */
+	u32 dsi_intsta;		/* DSI_INTSTA at last sync */
+	u32 dsi_con;		/* DSI_CON at last sync */
+	u32 fb_pitch;		/* DISP_STRIDE */
+	u32 screen_w;		/* 1080 */
+	u32 screen_h;		/* 2400 */
+	u32 pad[32];		/* reserved */
+};
 
 /* ── Safety: probe MMIO before doing anything ────────────────────────── */
 
@@ -123,11 +173,9 @@ static int mtk_disp_check_mmio(void)
 
 static void mtk_disp_pipeline_init(ulong fb_phys)
 {
-	/* 1. Enable clocks — clear clock-gate bits (active-low) */
-	writel(0x420803, MMSYS_CLK_CLR);
-	writel(0x4, MMSYS_CLK_CLR);
-	writel(0x80000, MMSYS_CLK_CLR);
-	writel(0x10000, MMSYS_CLK_CLR);
+	/* 1. Enable ALL clocks — clear clock-gate bits (active-low). */
+	writel(0xFFFFFFFF, MMSYS_CLK_CLR);
+	writel(0xFFFFFFFF, MMSYS_CLK_CLR_MM1);
 
 	/* 2. Deassert SW reset */
 	writel(0x1, MMSYS_SW_RST);
@@ -159,10 +207,35 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 
 	/* 7. Trigger OVL shadow reload */
 	writel(OVL_SHADOW_RELOAD, OVL0_EN);
+
+	/* 8. Enable DSI interrupts (CMD_DONE + RD_RDY) — like LK does.
+	 *    Register at offset 0x08 = DSI_INTEN (NOT DSI_CON!).
+	 *    BIT(0) = CMD_DONE_INTEN, BIT(1) = DSI_RD_RDY_INTEN.
+	 */
+	writel(0x3, DSI0_INTEN);
+
+	/* 9. Clear any stale interrupts */
+	writel(0xFFFFFFFF, DSI0_INTSTA);
 }
 
 static void mtk_disp_dsi_trigger(void)
 {
+	/*
+	 * Send DCS 0x2C (Write Memory Start) to trigger frame refresh.
+	 *
+	 * LK's FUN_0003e108/FUN_0003f1bc sequence:
+	 *   1. Write CMDQ word
+	 *   2. Write CMDQ_SIZE with trigger bit
+	 *   3. Toggle DSI_START (0 → 1)
+	 *
+	 * We do NOT poll DSI_BUSY or DSI_CMD_DONE because:
+	 *   - DSI_BUSY may stay high during DMA pixel transfer
+	 *   - CMD_DONE fires when the 0x2C command is sent, not when
+	 *     the full frame is transferred (which happens via DMA)
+	 *   - Polling adds latency to the cyclic handler
+	 *   - LK's "display initialized" path just toggles DSI_START
+	 *     without any polling
+	 */
 	writel(DSI_CMDQ_WRITE_MEM_START, DSI0_CMDQ);
 	writel(0x8001, DSI0_CMDQ_SIZE);
 	writel(0x0, DSI0_START);
@@ -173,10 +246,94 @@ static void mtk_disp_dsi_trigger(void)
 
 static int mtk_disp_video_sync(struct udevice *dev)
 {
+	static int sync_count;
 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
+	struct mtk_disp_diag *diag = (struct mtk_disp_diag *)(ulong)DIAG_BUF_PHYS;
 
 	if (!uc_priv || !uc_priv->fb || !uc_priv->fb_size)
 		return 0;
+
+	/* Update RAM diagnostic buffer */
+	diag->sync_count = sync_count + 1;
+	diag->colour_fg = uc_priv->colour_fg;
+	diag->colour_bg = uc_priv->colour_bg;
+	diag->fb_phys = (u32)(ulong)uc_priv->fb;
+	diag->fb_size = uc_priv->fb_size;
+	diag->dsi_intsta = readl(DSI0_INTSTA);
+	diag->dsi_con = readl(DSI0_CON);
+
+	/* On sync_count >= 3, try to read vidconsole state */
+	if (sync_count == 3) {
+		struct udevice *cons;
+		uclass_first_device_check(UCLASS_VIDEO_CONSOLE, &cons);
+		if (cons) {
+			struct vidconsole_priv *vc = dev_get_uclass_priv(cons);
+			diag->vc_bound = 1;
+			diag->vc_probed = device_active(cons) ? 1 : 0;
+			diag->vc_quiet = vc->quiet ? 1 : 0;
+			diag->vc_ycur = vc->ycur;
+			diag->vc_x_charsize = vc->x_charsize;
+			diag->vc_y_charsize = vc->y_charsize;
+			diag->vc_cols = vc->cols;
+			diag->vc_rows = vc->rows;
+			diag->vc_xstart_frac = vc->xstart_frac;
+			diag->vc_xcur_frac = vc->xcur_frac;
+			diag->vc_xsize_frac = vc->xsize_frac;
+		}
+		flush_dcache_range(DIAG_BUF_PHYS, DIAG_BUF_PHYS + sizeof(*diag));
+	}
+
+	/*
+	 * First 3 calls: draw thick diagnostic bars on screen.
+	 * Each bar is 30px tall for easy visibility.
+	 * Colours use 0xFF alpha to be opaque.
+	 *
+	 * y=150-179: YELLOW  = sync counter (30px)
+	 * y=180-209: GREEN   = video_sync called (30px)
+	 * y=210-239: RED     = fb pointer valid (30px)
+	 * y=240-269: BLUE    = format test (30px)
+	 * y=300-315: fg colour block (16px)
+	 * y=316-331: bg colour block (16px)
+	 */
+	if (sync_count < 3) {
+		u32 *fb = (u32 *)(ulong)uc_priv->fb;
+		int row, col;
+
+		/* YELLOW bar: y=150-179 */
+		for (row = 150; row < 180; row++)
+			for (col = 0; col < DISP_WIDTH; col++)
+				fb[row * (DISP_STRIDE / 4) + col] = 0xFF00FFFF;  /* R=FF G=FF B=0 A=FF */
+
+		/* GREEN bar: y=180-209 */
+		for (row = 180; row < 210; row++)
+			for (col = 0; col < DISP_WIDTH; col++)
+				fb[row * (DISP_STRIDE / 4) + col] = 0xFF00FF00;  /* R=0 G=FF B=0 A=FF */
+
+		/* RED bar: y=210-239 */
+		for (row = 210; row < 240; row++)
+			for (col = 0; col < DISP_WIDTH; col++)
+				fb[row * (DISP_STRIDE / 4) + col] = 0xFFFF0000;  /* R=FF G=0 B=0 A=FF */
+
+		/* BLUE bar: y=240-269 */
+		for (row = 240; row < 270; row++)
+			for (col = 0; col < DISP_WIDTH; col++)
+				fb[row * (DISP_STRIDE / 4) + col] = 0xFF0000FF;  /* R=0 G=0 B=FF A=FF */
+
+		/* fg colour: 16x16 block at (0, 300) */
+		for (row = 300; row < 316; row++)
+			for (col = 0; col < 16; col++)
+				fb[row * (DISP_STRIDE / 4) + col] = uc_priv->colour_fg;
+
+		/* bg colour: 16x16 block at (20, 300) */
+		for (row = 300; row < 316; row++)
+			for (col = 20; col < 36; col++)
+				fb[row * (DISP_STRIDE / 4) + col] = uc_priv->colour_bg;
+
+		flush_dcache_range((ulong)uc_priv->fb,
+				   (ulong)uc_priv->fb + uc_priv->fb_size);
+		mtk_disp_dsi_trigger();
+	}
+	sync_count++;
 
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
@@ -190,8 +347,17 @@ static int mtk_disp_probe(struct udevice *dev)
 {
 	struct video_uc_plat *plat = dev_get_uclass_plat(dev);
 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
+	struct mtk_disp_diag *diag = (struct mtk_disp_diag *)(ulong)DIAG_BUF_PHYS;
 	ulong fb_phys;
 	int ret;
+
+	/* Zero out diagnostic buffer */
+	memset(diag, 0, sizeof(*diag));
+	diag->magic = 0xD1A90C00;
+	diag->version = 2;
+	diag->screen_w = DISP_WIDTH;
+	diag->screen_h = DISP_HEIGHT;
+	diag->fb_pitch = DISP_STRIDE;
 
 	printf("mtk_disp: probing...\n");
 
@@ -199,6 +365,7 @@ static int mtk_disp_probe(struct udevice *dev)
 	ret = mtk_disp_check_mmio();
 	if (ret) {
 		printf("mtk_disp: MMIO not accessible, skipping display\n");
+		diag->last_error = 1;
 		return ret;
 	}
 
@@ -219,6 +386,8 @@ static int mtk_disp_probe(struct udevice *dev)
 		fb_phys = LK_DEFAULT_FB;
 	}
 
+	diag->fb_phys = (u32)fb_phys;
+
 	/* Step 3: Configure display pipeline */
 	printf("mtk_disp: init pipeline, FB @ 0x%lx\n", fb_phys);
 	mtk_disp_pipeline_init(fb_phys);
@@ -235,6 +404,11 @@ static int mtk_disp_probe(struct udevice *dev)
 	uc_priv->y_start_offset = 200; /* skip notch zone at top */
 
 	video_set_flush_dcache(dev, true);
+
+	diag->bpix = uc_priv->bpix;
+	diag->line_length = uc_priv->line_length;
+	diag->y_start_offset = uc_priv->y_start_offset;
+	diag->fb_size = DISP_FB_SIZE;
 
 	printf("mtk_disp: probe OK — %dx%d, stride=%d\n",
 	       DISP_WIDTH, DISP_HEIGHT, DISP_STRIDE);
