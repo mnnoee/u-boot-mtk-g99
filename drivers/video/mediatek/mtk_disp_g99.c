@@ -173,7 +173,9 @@ static int mtk_disp_check_mmio(void)
 
 static void mtk_disp_pipeline_init(ulong fb_phys)
 {
-	/* 1. Enable ALL clocks — clear clock-gate bits (active-low). */
+	/* 1. Enable ALL clocks — clear clock-gate bits (active-low).
+	 *    Writing 0xFFFFFFFF was verified on hardware (status became 0x00000000).
+	 */
 	writel(0xFFFFFFFF, MMSYS_CLK_CLR);
 	writel(0xFFFFFFFF, MMSYS_CLK_CLR_MM1);
 
@@ -207,15 +209,6 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 
 	/* 7. Trigger OVL shadow reload */
 	writel(OVL_SHADOW_RELOAD, OVL0_EN);
-
-	/* 8. Enable DSI interrupts (CMD_DONE + RD_RDY) — like LK does.
-	 *    Register at offset 0x08 = DSI_INTEN (NOT DSI_CON!).
-	 *    BIT(0) = CMD_DONE_INTEN, BIT(1) = DSI_RD_RDY_INTEN.
-	 */
-	writel(0x3, DSI0_INTEN);
-
-	/* 9. Clear any stale interrupts */
-	writel(0xFFFFFFFF, DSI0_INTSTA);
 }
 
 static void mtk_disp_dsi_trigger(void)
