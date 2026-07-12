@@ -16,6 +16,7 @@
 #include <spl.h>
 #include <stdio_dev.h>
 #include <video.h>
+#include <splash.h>
 #include <video_console.h>
 #include <asm/cache.h>
 #include <asm/global_data.h>
@@ -602,7 +603,8 @@ static int show_splash(struct udevice *dev)
 	u8 *data = SPLASH_START(u_boot_logo);
 	int ret;
 
-	ret = video_bmp_display(dev, map_to_sysmem(data), -4, 4, true);
+	ret = video_bmp_display(dev, map_to_sysmem(data),
+				BMP_ALIGN_CENTER, BMP_ALIGN_CENTER, true);
 
 	return 0;
 }

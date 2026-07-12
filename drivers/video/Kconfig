@@ -995,6 +995,19 @@ config VIDEO_DT_SIMPLEFB
 	  The video output is initialized by U-Boot, and kept by the
 	  kernel.
 
+config VIDEO_MTK_G99
+	bool "MediaTek MT6789 (Helio G99) display driver"
+	imply VIDEO_DAMAGE
+	help
+	  Minimal display driver for MT6789/MT8781 SoCs. Hooks into the
+	  LK-initialized display pipeline (DSI + ILI7835F panel) and
+	  configures OVL0, RDMA0, DITHER0, and MUTEX0 to drive the
+	  framebuffer.
+
+	  LK/BL2_EXT must initialize the DSI controller and panel before
+	  U-Boot starts. This driver reads the framebuffer address from
+	  OVL0_L0_ADDR and sets up the display pipeline.
+
 config VIDEO_MCDE_SIMPLE
 	bool "Simple driver for ST-Ericsson MCDE with preconfigured display"
 	imply VIDEO_DAMAGE

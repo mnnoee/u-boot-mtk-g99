@@ -23,15 +23,11 @@
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
+	};
 
-		framebuffer: framebuffer@fe0c8000 {
-			compatible = "simple-framebuffer";
-			reg = <0 0xfe0c8000 0 0x1f2f000>;
-			width = <1080>;
-			height = <2400>;
-			stride = <((1080 + 16) * 4)>;
-			format = "a8r8g8b8";
-		};
+	display: display {
+		compatible = "mediatek,mt6789-disp";
+		bootph-all;
 	};
 
 	memory {
