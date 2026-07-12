@@ -232,6 +232,7 @@ static int mtk_disp_probe(struct udevice *dev)
 	uc_priv->bpix = VIDEO_BPP32;
 	uc_priv->format = VIDEO_ARGB8888;
 	uc_priv->line_length = DISP_STRIDE;
+	uc_priv->y_start_offset = 200; /* skip notch zone at top */
 
 	video_set_flush_dcache(dev, true);
 

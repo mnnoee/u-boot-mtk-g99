@@ -726,6 +726,13 @@ static int video_post_probe(struct udevice *dev)
 		return ret;
 	}
 
+	/* Apply Y start offset from video driver (e.g. notch zone) */
+	if (priv->y_start_offset) {
+		struct vidconsole_priv *vc = dev_get_uclass_priv(cons);
+
+		vc->ycur = priv->y_start_offset;
+	}
+
 	if (CONFIG_IS_ENABLED(VIDEO_LOGO) &&
 	    !CONFIG_IS_ENABLED(SPLASH_SCREEN) && !plat->hide_logo) {
 		ret = show_splash(dev);
