@@ -209,6 +209,11 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 
 	/* 7. Trigger OVL shadow reload */
 	writel(OVL_SHADOW_RELOAD, OVL0_EN);
+
+	/* 8. Enable DSI interrupts (CMD_DONE + RD_RDY).
+	 *    Offset 0x08 = DSI_INTEN. LK had this enabled.
+	 */
+	writel(0x3, DSI0_INTEN);
 }
 
 static void mtk_disp_dsi_trigger(void)
