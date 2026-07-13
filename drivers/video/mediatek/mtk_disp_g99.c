@@ -16,6 +16,7 @@
 
 #include <dm.h>
 #include <video.h>
+#include <video_console.h>
 #include <asm/io.h>
 #include <asm/cache.h>
 
@@ -88,13 +89,25 @@
 /*
  * Diagnostic RAM buffer — written once at end of probe(), read via md.l
  * after boot through ACM shell.  Placed right after framebuffer end.
- * Format (offset : значение):
+ *
+ * Блок 0x00 — probe() snapshot:
  *   +0x00 : magic 0xDEADBEEF
- *   +0x04 : uc_priv->fb  (адрес framebuffer, как его видит vidconsole)
- *   +0x08 : plat->base   (физический адрес, который probe() выставил железу)
+ *   +0x04 : uc_priv->fb
+ *   +0x08 : plat->base
  *   +0x0c : uc_priv->fb_size
  *   +0x10 : plat->size
- * Читать: md.l 0xff4a1400 5
+ *
+ * Блок 0x20 — vidconsole snapshot (записывается дважды: в probe()
+ * magic 0xC0FFEE00, и при первом video_sync() magic 0xC0FFEE01):
+ *   +0x20 : magic (0xC0FFEE00=probe, 0xC0FFEE01=first sync)
+ *   +0x24 : vc->cols
+ *   +0x28 : vc->rows
+ *   +0x2c : vc->xcur_frac
+ *   +0x30 : vc->ycur
+ *   +0x34 : vc->x_charsize
+ *   +0x38 : vc->y_charsize
+ *   +0x3c : device_active(cons)
+ * Читать: md.l 0xff4a1400 10
  */
 #define DIAG_ADDR		(LK_DEFAULT_FB + DISP_FB_SIZE)	/* 0xff4a1400 */
 
@@ -175,6 +188,37 @@ static void mtk_disp_dsi_trigger(void)
 	writel(0x1, DSI0_START);
 }
 
+/* ── vidconsole snapshot helper (RAM diag, block at DIAG_ADDR + 0x20) ── */
+
+static void mtk_disp_diag_vc(u32 magic)
+{
+	struct udevice *cons;
+
+	writel(magic, DIAG_ADDR + 0x20);
+
+	uclass_first_device_check(UCLASS_VIDEO_CONSOLE, &cons);
+	if (cons) {
+		struct vidconsole_priv *vc = dev_get_uclass_priv(cons);
+		writel(vc->cols,       DIAG_ADDR + 0x24);
+		writel(vc->rows,       DIAG_ADDR + 0x28);
+		writel(vc->xcur_frac,  DIAG_ADDR + 0x2c);
+		writel(vc->ycur,       DIAG_ADDR + 0x30);
+		writel(vc->x_charsize, DIAG_ADDR + 0x34);
+		writel(vc->y_charsize, DIAG_ADDR + 0x38);
+		writel(device_active(cons) ? 1 : 0, DIAG_ADDR + 0x3c);
+	} else {
+		writel(0xFFFFFFFF, DIAG_ADDR + 0x24);
+		writel(0xFFFFFFFF, DIAG_ADDR + 0x28);
+		writel(0xFFFFFFFF, DIAG_ADDR + 0x2c);
+		writel(0xFFFFFFFF, DIAG_ADDR + 0x30);
+		writel(0xFFFFFFFF, DIAG_ADDR + 0x34);
+		writel(0xFFFFFFFF, DIAG_ADDR + 0x38);
+		writel(0, DIAG_ADDR + 0x3c);
+	}
+
+	flush_dcache_range(DIAG_ADDR + 0x20, DIAG_ADDR + 0x40);
+}
+
 /* ── U-Boot video driver ops ────────────────────────────────────────── */
 
 static int mtk_disp_video_sync(struct udevice *dev)
@@ -191,6 +235,8 @@ static int mtk_disp_video_sync(struct udevice *dev)
 		       "(match=%s)\n",
 		       uc_priv->fb, (ulong)plat->base, uc_priv->fb_size,
 		       (ulong)uc_priv->fb == plat->base ? "YES" : "NO");
+		/* vidconsole snapshot — после попытки lcdputs */
+		mtk_disp_diag_vc(0xC0FFEE01);
 		once = 1;
 	}
 
@@ -261,6 +307,9 @@ static int mtk_disp_probe(struct udevice *dev)
 	writel(uc_priv->fb_size, DIAG_ADDR + 0x0c);
 	writel(plat->size, DIAG_ADDR + 0x10);
 	flush_dcache_range(DIAG_ADDR, DIAG_ADDR + 0x20);
+
+	/* vidconsole snapshot — состояние до lcdputs */
+	mtk_disp_diag_vc(0xC0FFEE00);
 
 	return 0;
 }
