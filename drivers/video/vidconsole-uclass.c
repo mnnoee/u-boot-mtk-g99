@@ -558,10 +558,6 @@ static void vidconsole_putc(struct stdio_dev *sdev, const char ch)
 
 static void vidconsole_puts(struct stdio_dev *sdev, const char *s)
 {
-	/* TEMP DIAG: entry marker at 0xff4a1440 */
-	*(volatile u32 *)0xff4a1440 = 0xCAFEBABE;
-	*(volatile u32 *)0xff4a1444 = (u32)(ulong)s;
-
 	struct udevice *dev = sdev->priv;
 	struct vidconsole_priv *priv = dev_get_uclass_priv(dev);
 	int ret;
