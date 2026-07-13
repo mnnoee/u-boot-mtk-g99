@@ -91,24 +91,23 @@ static int console_putc_xy(struct udevice *dev, uint x_frac, uint y, int cp)
 	start = vid_priv->fb + linenum * vid_priv->line_length + x * pbytes;
 	line = start;
 
-	/* TEMP diag — first character start address */
-	{
-		static bool first = true;
-		if (first) {
-			writel((u32)(ulong)start, 0xff4a1478);
-			writel((u32)(ulong)vid_priv->fb, 0xff4a147c);
-			writel(linenum, 0xff4a1480);
-			writel(x, 0xff4a1484);
-			writel(vid_priv->line_length, 0xff4a1488);
-			flush_dcache_range(0xff4a1478, 0xff4a148c);
-			first = false;
-		}
-	}
-
 	if (x_frac + VID_TO_POS(vc_priv->x_charsize) > vc_priv->xsize_frac)
 		return -EAGAIN;
 
 	ret = fill_char_vertically(pfont, &line, vid_priv, fontdata, NORMAL_DIRECTION);
+
+	/* TEMP diag — read back first 4 pixels RIGHT AFTER draw */
+	{
+		static bool once;
+		if (!once) {
+			writel(readl((u32 *)start), 0xff4a14a0);
+			writel(readl((u32 *)start + 1), 0xff4a14a4);
+			writel(readl((u32 *)start + 2), 0xff4a14a8);
+			writel(readl((u32 *)start + 3), 0xff4a14ac);
+			flush_dcache_range(0xff4a14a0, 0xff4a14b0);
+			once = true;
+		}
+	}
 	if (ret)
 		return ret;
 
