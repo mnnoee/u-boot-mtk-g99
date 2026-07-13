@@ -85,6 +85,19 @@
 /* Default framebuffer address as set by LK */
 #define LK_DEFAULT_FB		0xfeabe000UL
 
+/*
+ * Diagnostic RAM buffer — written once at end of probe(), read via md.l
+ * after boot through ACM shell.  Placed right after framebuffer end.
+ * Format (offset : значение):
+ *   +0x00 : magic 0xDEADBEEF
+ *   +0x04 : uc_priv->fb  (адрес framebuffer, как его видит vidconsole)
+ *   +0x08 : plat->base   (физический адрес, который probe() выставил железу)
+ *   +0x0c : uc_priv->fb_size
+ *   +0x10 : plat->size
+ * Читать: md.l 0xff4a1400 5
+ */
+#define DIAG_ADDR		(LK_DEFAULT_FB + DISP_FB_SIZE)	/* 0xff4a1400 */
+
 /* ── MMIO accessibility check ────────────────────────────────────────── */
 
 static int mtk_disp_check_mmio(void)
@@ -166,10 +179,20 @@ static void mtk_disp_dsi_trigger(void)
 
 static int mtk_disp_video_sync(struct udevice *dev)
 {
+	static int once;
 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
 
 	if (!uc_priv || !uc_priv->fb || !uc_priv->fb_size)
 		return 0;
+
+	if (!once) {
+		struct video_uc_plat *plat = dev_get_uclass_plat(dev);
+		printf("mtk_disp: sync fb=%p plat_base=%lx fb_size=%d "
+		       "(match=%s)\n",
+		       uc_priv->fb, (ulong)plat->base, uc_priv->fb_size,
+		       (ulong)uc_priv->fb == plat->base ? "YES" : "NO");
+		once = 1;
+	}
 
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
@@ -221,6 +244,15 @@ static int mtk_disp_probe(struct udevice *dev)
 
 	printf("mtk_disp: %dx%d @ 0x%lx\n",
 	       DISP_WIDTH, DISP_HEIGHT, fb_phys);
+	printf("fb=%p plat_base=%lx\n", uc_priv->fb, (ulong)plat->base);
+
+	/* Диагностика через RAM — без UART */
+	writel(0xDEADBEEF, DIAG_ADDR);
+	writel((u32)(ulong)uc_priv->fb, DIAG_ADDR + 0x04);
+	writel((u32)(ulong)plat->base, DIAG_ADDR + 0x08);
+	writel(uc_priv->fb_size, DIAG_ADDR + 0x0c);
+	writel(plat->size, DIAG_ADDR + 0x10);
+	flush_dcache_range(DIAG_ADDR, DIAG_ADDR + 0x20);
 
 	return 0;
 }
