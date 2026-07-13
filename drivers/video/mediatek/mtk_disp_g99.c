@@ -36,6 +36,7 @@
 /* ── MMSYS routing registers (mux selectors) ────────────────────────── */
 /* See docs/AGENTS/mt6789_mmsys_routing.md for full decoding           */
 
+#define MMSYS_CFG_UPDATE	(MMSYS_BASE + 0xf0c)	/* shadow load for mux cfg */
 #define MMSYS_OVL0_MOUT		(MMSYS_BASE + 0xf18)	/* OVL0 output mux */
 #define MMSYS_RDMA0_SEL_IN	(MMSYS_BASE + 0xf28)	/* RDMA0 input select */
 #define MMSYS_DITHER0_MOUT	(MMSYS_BASE + 0xf20)	/* DITHER0 output mux */
@@ -147,13 +148,14 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(0x1, MMSYS_SW_RST);
 
 	/*
-	 * Шаг 3: MMSYS routing — путь через DITHER0 (как в оригинальном LK).
-	 * OVL0 → RDMA0 → (COLOR0) → DITHER0 → DSI0
+	 * Шаг 3: MMSYS routing — путь через DITHER0.
+	 * 0xf0c = shadow load for mux cfg (должен быть 0x0 для apply)
 	 */
+	writel(0x0, MMSYS_CFG_UPDATE);
 	writel(0x1, MMSYS_OVL0_MOUT);		/* OVL0 output → RDMA0 */
 	writel(0x0, MMSYS_RDMA0_SEL_IN);	/* RDMA0 input ← OVL0 */
 	writel(0x1, MMSYS_DITHER0_MOUT);	/* DITHER0 output → DSI0 */
-	writel(0x1, MMSYS_DSI0_SEL_IN);	/* DSI0 input ← DITHER0 */
+	writel(0x0, MMSYS_DSI0_SEL_IN);	/* DSI0 input ← DITHER0 */
 
 	/* Шаг 4: конфигурация OVL0 Layer 0 */
 	writel(0x1,        OVL0_EN);
@@ -230,6 +232,7 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	writel(0xF00DFACE, DIAG_ADDR + 0x50);
 
 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
+	ulong fb_phys;
 
 	if (!uc_priv || !uc_priv->fb || !uc_priv->fb_size) {
 		writel(0x1, DIAG_ADDR + 0x54);
@@ -237,12 +240,36 @@ static int mtk_disp_video_sync(struct udevice *dev)
 		return 0;
 	}
 
-	flush_dcache_range((ulong)uc_priv->fb,
-			   (ulong)uc_priv->fb + uc_priv->fb_size);
+	fb_phys = (ulong)uc_priv->fb;
+	flush_dcache_range(fb_phys, fb_phys + uc_priv->fb_size);
 
-	/* OVL shadow reload + RDMA restart (pipeline refresh) */
+	/*
+	 * Полная переинициализация пайплайна (как ручная последовательность):
+	 * routing → OVL → RDMA → MUTEX → shadow reload → DSI trigger
+	 */
+	writel(0x0, MMSYS_CFG_UPDATE);
+	writel(0x1, MMSYS_OVL0_MOUT);
+	writel(0x0, MMSYS_RDMA0_SEL_IN);
+	writel(0x1, MMSYS_DITHER0_MOUT);
+	writel(0x0, MMSYS_DSI0_SEL_IN);
+
+	writel(0x1,        OVL0_EN);
+	writel(0x201e,     OVL0_CFG);
+	writel(0x05000001, OVL0_SRC_CON);
+	writel(0x1,        OVL0_L0_CON);
+	writel(0x1001020,  OVL0_L0_CFG);
+	writel(0x10e0,     OVL0_L0_PITCH);
+	writel(0x09600438, OVL0_L0_SRC_SIZE);
+	writel(0x0,        OVL0_L0_OFFSET);
+	writel(fb_phys,    OVL0_L0_ADDR);
+
+	writel(0x1f,       RDMA0_EN);
+	writel(fb_phys,    RDMA0_MEM_ADDR);
+	writel(0x09600438, RDMA0_SRC_SIZE);
+
+	writel(0x1, MUTEX0_EN);
+
 	writel(OVL_SHADOW_RELOAD, OVL0_EN);
-	writel(0x1f, RDMA0_EN);
 
 	mtk_disp_dsi_trigger();
 
