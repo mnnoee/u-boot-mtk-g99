@@ -10,6 +10,8 @@
 #include <video_console.h>
 #include <dm.h>
 #include <video_font.h>
+#include <asm/io.h>
+#include <cpu_func.h>
 #include "vidconsole_internal.h"
 
 /**
@@ -63,6 +65,19 @@ inline void fill_pixel_and_goto_next(void **dstp, u32 value, int pbytes, int ste
 	if (pbytes == 4) {
 		u32 *dst = *dstp;
 		*dst = value;
+
+		/* TEMP diag — first pixel write capture */
+		{
+			static bool once;
+			if (!once) {
+				writel((u32)(ulong)dst, 0xff4a1490);
+				writel(value,            0xff4a1494);
+				writel(step,             0xff4a1498);
+				writel((u32)(ulong)dst_byte, 0xff4a149c);
+				flush_dcache_range(0xff4a1490, 0xff4a14a0);
+				once = true;
+			}
+		}
 	}
 	if (pbytes == 2) {
 		u16 *dst = *dstp;
