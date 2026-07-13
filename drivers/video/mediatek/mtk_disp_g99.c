@@ -62,14 +62,24 @@
 #define RDMA0_MEM_ADDR		(RDMA0_BASE + 0x02c)
 #define RDMA0_SRC_SIZE		(RDMA0_BASE + 0x030)
 
-/* ── MUTEX0 registers ───────────────────────────────────────────────── */
+/* ── MUTEX0 registers (MT6789: MOD=+0x30, SOF=+0x2c, EN=+0x20) ────── */
 
 #define MUTEX0_INTEN		(MUTEX0_BASE + 0x000)
 #define MUTEX0_INTSTA		(MUTEX0_BASE + 0x004)
-#define MUTEX0_MOD		(MUTEX0_BASE + 0x014)
-#define MUTEX0_SOF		(MUTEX0_BASE + 0x018)
+#define MUTEX0_MOD		(MUTEX0_BASE + 0x030)
+#define MUTEX0_SOF		(MUTEX0_BASE + 0x02c)
 #define MUTEX0_EN		(MUTEX0_BASE + 0x020)
 #define DSI0_STATUS		(DSI0_BASE + 0x00c)
+
+/* MUTEX_MOD bits for MT6789 pipeline modules */
+#define MUTEX_MOD_OVL0		BIT(0)
+#define MUTEX_MOD_RDMA0		BIT(2)
+#define MUTEX_MOD_COLOR0	BIT(4)
+#define MUTEX_MOD_CCORR0	BIT(5)
+#define MUTEX_MOD_AAL0		BIT(7)
+#define MUTEX_MOD_GAMMA0	BIT(8)
+#define MUTEX_MOD_DITHER0	BIT(10)
+#define MUTEX_MOD_DSI0		BIT(14)
 
 /* ── DSI0 registers (MT6789-specific offsets) ────────────────────────── */
 
@@ -188,9 +198,10 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(0x09600438, RDMA0_SRC_SIZE);
 
 	/* Шаг 6: настроить MUTEX0 */
-	writel(0x1,       MUTEX0_INTSTA);	/* clear pending SOF irq */
-	writel(0x1f001,   MUTEX0_MOD);		/* modules waiting for SOF */
-	writel(0x1b,      MUTEX0_EN);		/* LK value: 0x1b */
+	writel(0x0, MUTEX0_SOF);		/* single mode (no TE needed) */
+	writel(MUTEX_MOD_OVL0 | MUTEX_MOD_RDMA0 | MUTEX_MOD_DITHER0 | MUTEX_MOD_DSI0,
+	       MUTEX0_MOD);
+	writel(0x1, MUTEX0_EN);
 
 	/* Шаг 7: триггер shadow reload OVL */
 	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
@@ -295,9 +306,10 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	writel(0x1f,       RDMA0_EN);
 	writel(0x09600438, RDMA0_SRC_SIZE);
 
-	writel(0x1,       MUTEX0_INTSTA);
-	writel(0x1f001,   MUTEX0_MOD);
-	writel(0x1b,      MUTEX0_EN);
+	writel(0x0, MUTEX0_SOF);
+	writel(MUTEX_MOD_OVL0 | MUTEX_MOD_RDMA0 | MUTEX_MOD_DITHER0 | MUTEX_MOD_DSI0,
+	       MUTEX0_MOD);
+	writel(0x1, MUTEX0_EN);
 
 	writel(0x1b, OVL0_EN);
 	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
