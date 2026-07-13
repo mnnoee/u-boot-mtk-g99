@@ -44,8 +44,10 @@
 
 /* ── OVL0 registers ─────────────────────────────────────────────────── */
 
-#define OVL0_EN			(OVL0_BASE + 0x00c)
-#define OVL0_CFG		(OVL0_BASE + 0x010)
+#define OVL0_EN			(OVL0_BASE + 0x000)
+#define OVL0_CFG		(OVL0_BASE + 0x004)
+#define OVL0_CON		(OVL0_BASE + 0x008)
+#define OVL0_UPDATE		(OVL0_BASE + 0x00c)
 #define OVL0_SRC_CON		(OVL0_BASE + 0x024)
 #define OVL0_L0_CON		(OVL0_BASE + 0x0c0)
 #define OVL0_L0_CFG		(OVL0_BASE + 0x030)
@@ -158,7 +160,7 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(0x0, MMSYS_DSI0_SEL_IN);	/* DSI0 input ← DITHER0 */
 
 	/* Шаг 4: конфигурация OVL0 Layer 0 */
-	writel(0x1,        OVL0_EN);
+	writel(0x1,        OVL0_UPDATE);	/* enable via UPDATE reg */
 	writel(0x201e,     OVL0_CFG);
 	writel(0x05000001, OVL0_SRC_CON);
 	writel(0x1,        OVL0_L0_CON);
@@ -177,7 +179,7 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(0x1, MUTEX0_EN);
 
 	/* Шаг 7: триггер shadow reload OVL */
-	writel(OVL_SHADOW_RELOAD, OVL0_EN);
+	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
 }
 
 /* ── DSI Write Memory Start trigger ─────────────────────────────────-- */
@@ -246,8 +248,9 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	/*
 	 * Отключаем OVL (чтобы не рвать кадр), переконфигурируем
 	 * пайплайн, включаем обратно, дёргаем DSI trigger.
+	 * UPDATE (+0x0c): бит0=1 soft update, бит22=0x400000 shadow reload.
 	 */
-	writel(0x0, OVL0_EN);
+	writel(0x0, OVL0_UPDATE);
 
 	writel(0x0, MMSYS_CFG_UPDATE);
 	writel(0x1, MMSYS_OVL0_MOUT);
@@ -255,7 +258,7 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	writel(0x1, MMSYS_DITHER0_MOUT);
 	writel(0x0, MMSYS_DSI0_SEL_IN);
 
-	writel(0x1,        OVL0_EN);
+	writel(0x1,        OVL0_UPDATE);
 	writel(0x201e,     OVL0_CFG);
 	writel(0x05000001, OVL0_SRC_CON);
 	writel(0x1,        OVL0_L0_CON);
@@ -271,7 +274,7 @@ static int mtk_disp_video_sync(struct udevice *dev)
 
 	writel(0x1, MUTEX0_EN);
 
-	writel(OVL_SHADOW_RELOAD, OVL0_EN);
+	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
 	mtk_disp_dsi_trigger();
 
 	writel(0x2, DIAG_ADDR + 0x54);
