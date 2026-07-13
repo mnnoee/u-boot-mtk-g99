@@ -19,7 +19,6 @@
 #include <video_console.h>
 #include <asm/io.h>
 #include <asm/cache.h>
-#include <linux/delay.h>
 
 /* ── Hardware register bases ─────────────────────────────────────────── */
 
@@ -179,6 +178,28 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(OVL_SHADOW_RELOAD, OVL0_EN);
 }
 
+/* ── ARM Generic Timer busy-wait (no udelay, works without U-Boot timer) ── */
+
+static u64 mtk_disp_get_cntvct(void)
+{
+	u64 val;
+	asm volatile("mrs %0, cntvct_el0" : "=r"(val));
+	return val;
+}
+
+static void mtk_disp_wait_us(u64 us)
+{
+	u64 freq, start, now;
+
+	asm volatile("mrs %0, cntfrq_el0" : "=r"(freq));
+	if (!freq)
+		return;
+	start = mtk_disp_get_cntvct();
+	now = start;
+	while ((now - start) < (us * freq) / 1000000)
+		now = mtk_disp_get_cntvct();
+}
+
 /* ── DSI Write Memory Start trigger ─────────────────────────────────-- */
 
 static void mtk_disp_dsi_trigger(void)
@@ -188,7 +209,7 @@ static void mtk_disp_dsi_trigger(void)
 	writel(0x0, DSI0_START);
 	writel(0x1, DSI0_START);
 	writel(0x0, DSI0_START);
-	udelay(20000);
+	mtk_disp_wait_us(20000);
 }
 
 /* ── vidconsole snapshot helper (RAM diag, block at DIAG_ADDR + 0x20) ── */
