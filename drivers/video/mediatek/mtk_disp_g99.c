@@ -47,7 +47,7 @@
 #define OVL0_EN			(OVL0_BASE + 0x000)
 #define OVL0_CFG		(OVL0_BASE + 0x004)
 #define OVL0_CON		(OVL0_BASE + 0x008)
-#define OVL0_UPDATE		(OVL0_BASE + 0x00c)
+#define OVL0_UPDATE		(OVL0_BASE + 0x00c)	/* shadow reload trigger */
 #define OVL0_SRC_CON		(OVL0_BASE + 0x024)
 #define OVL0_L0_CON		(OVL0_BASE + 0x0c0)
 #define OVL0_L0_CFG		(OVL0_BASE + 0x030)
@@ -176,7 +176,7 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 
 	/* Шаг 5: конфигурация RDMA0 */
 	writel(0x1f,       RDMA0_EN);
-	writel(fb_phys,    RDMA0_MEM_ADDR);
+	writel(fb_phys,    RDMA0_MEM_ADDR);	/* note: may not stick (HW) */
 	writel(0x09600438, RDMA0_SRC_SIZE);
 
 	/* Шаг 6: включить MUTEX0 */
@@ -249,7 +249,35 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	fb_phys = (ulong)uc_priv->fb;
 	flush_dcache_range(fb_phys, fb_phys + uc_priv->fb_size);
 
-	/* Минимальный sync: shadow reload + MUTEX kick + DSI trigger */
+	/*
+	 * Отключаем OVL по-настоящему (+0x00), переконфигурируем
+	 * пайплайн, включаем обратно, триггерим DSI.
+	 */
+	writel(readl(OVL0_EN) & ~1, OVL0_EN);
+	writel(0x0, OVL0_UPDATE);
+
+	writel(0x0, MMSYS_CFG_UPDATE);
+	writel(0x1, MMSYS_OVL0_MOUT);
+	writel(0x0, MMSYS_RDMA0_SEL_IN);
+	writel(0x1, MMSYS_DITHER0_MOUT);
+	writel(0x0, MMSYS_DSI0_SEL_IN);
+
+	writel(0x1,        OVL0_UPDATE);
+	writel(0x201e,     OVL0_CFG);
+	writel(0x05000001, OVL0_SRC_CON);
+	writel(0x1,        OVL0_L0_CON);
+	writel(0x1001020,  OVL0_L0_CFG);
+	writel(0x10e0,     OVL0_L0_PITCH);
+	writel(0x09600438, OVL0_L0_SRC_SIZE);
+	writel(0x0,        OVL0_L0_OFFSET);
+	writel(fb_phys,    OVL0_L0_ADDR);
+
+	writel(0x1f,       RDMA0_EN);
+	writel(0x09600438, RDMA0_SRC_SIZE);
+
+	writel(0x1, MUTEX0_EN);
+
+	writel(0x1b, OVL0_EN);			/* restore LK value */
 	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
 	mtk_disp_dsi_trigger();
 
