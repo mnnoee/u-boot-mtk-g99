@@ -69,6 +69,7 @@
 /* ── DSI0 registers (MT6789-specific offsets) ────────────────────────── */
 
 #define DSI0_START		(DSI0_BASE + 0x000)
+#define DSI0_CON		(DSI0_BASE + 0x008)
 #define DSI0_CMDQ_SIZE		(DSI0_BASE + 0x060)
 #define DSI0_CMDQ		(DSI0_BASE + 0xd00)	/* MT6789-specific: NOT 0x200 */
 
@@ -148,6 +149,9 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 
 	/* Шаг 2: deassert SW reset (write-1-to-deassert) */
 	writel(0x1, MMSYS_SW_RST);
+
+	/* Шаг 2.5: включить DSI контроллер (LK отключает перед передачей) */
+	writel(0x3, DSI0_CON);		/* бит 0 = DSI_EN, бит 1 = cmd mode */
 
 	/*
 	 * Шаг 3: MMSYS routing — путь через DITHER0.
