@@ -249,35 +249,7 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	fb_phys = (ulong)uc_priv->fb;
 	flush_dcache_range(fb_phys, fb_phys + uc_priv->fb_size);
 
-	/*
-	 * Отключаем OVL (чтобы не рвать кадр), переконфигурируем
-	 * пайплайн, включаем обратно, дёргаем DSI trigger.
-	 * UPDATE (+0x0c): бит0=1 soft update, бит22=0x400000 shadow reload.
-	 */
-	writel(0x0, OVL0_UPDATE);
-
-	writel(0x0, MMSYS_CFG_UPDATE);
-	writel(0x1, MMSYS_OVL0_MOUT);
-	writel(0x0, MMSYS_RDMA0_SEL_IN);
-	writel(0x1, MMSYS_DITHER0_MOUT);
-	writel(0x0, MMSYS_DSI0_SEL_IN);
-
-	writel(0x1,        OVL0_UPDATE);
-	writel(0x201e,     OVL0_CFG);
-	writel(0x05000001, OVL0_SRC_CON);
-	writel(0x1,        OVL0_L0_CON);
-	writel(0x1001020,  OVL0_L0_CFG);
-	writel(0x10e0,     OVL0_L0_PITCH);
-	writel(0x09600438, OVL0_L0_SRC_SIZE);
-	writel(0x0,        OVL0_L0_OFFSET);
-	writel(fb_phys,    OVL0_L0_ADDR);
-
-	writel(0x1f,       RDMA0_EN);
-	writel(fb_phys,    RDMA0_MEM_ADDR);
-	writel(0x09600438, RDMA0_SRC_SIZE);
-
-	writel(0x1, MUTEX0_EN);
-
+	/* Минимальный sync: shadow reload + MUTEX kick + DSI trigger */
 	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
 	mtk_disp_dsi_trigger();
 
