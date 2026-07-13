@@ -245,12 +245,23 @@ static int mtk_disp_video_sync(struct udevice *dev)
 		once = 1;
 	}
 
+	/* DIAG: read first pixel of FB before flush */
+	writel(readl((u32 *)uc_priv->fb), DIAG_ADDR + 0x60);
+	writel(readl((u32 *)uc_priv->fb + 1), DIAG_ADDR + 0x64);
+	writel(readl((u32 *)uc_priv->fb + 2), DIAG_ADDR + 0x68);
+	writel(readl((u32 *)uc_priv->fb + 1080), DIAG_ADDR + 0x6c);
+
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
 	mtk_disp_dsi_trigger();
 
 	writel(0x2, DIAG_ADDR + 0x54);
-	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x58);
+
+	/* DIAG: after-flush snapshot — те же пиксели из DRAM */
+	writel(readl((u32 *)uc_priv->fb), DIAG_ADDR + 0x70);
+	writel(readl((u32 *)uc_priv->fb + 1080), DIAG_ADDR + 0x74);
+
+	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x78);
 
 	return 0;
 }
