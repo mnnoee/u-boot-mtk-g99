@@ -61,6 +61,13 @@ inline void fill_pixel_and_goto_next(void **dstp, u32 value, int pbytes, int ste
 	u8 *dst_byte = *dstp;
 
 	if (pbytes == 4) {
+		/* TEMP DIAG: log first pixel write address */
+		static bool __diag_once;
+		if (!__diag_once) {
+			*(volatile u32 *)0xff4a1460 = 0xA11A55A1;
+			*(volatile u32 *)0xff4a1464 = (u32)(ulong)*dstp;
+			__diag_once = true;
+		}
 		u32 *dst = *dstp;
 		*dst = value;
 	}
