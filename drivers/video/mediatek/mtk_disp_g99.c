@@ -19,6 +19,7 @@
 #include <video_console.h>
 #include <asm/io.h>
 #include <asm/cache.h>
+#include <linux/delay.h>
 
 /* ── Hardware register bases ─────────────────────────────────────────── */
 
@@ -189,6 +190,29 @@ static void mtk_disp_dsi_trigger(void)
 	writel(0x0, DSI0_START);
 }
 
+/* ── DSI trigger with busy guard ─────────────────────────────────────── */
+
+#define DSI0_STATUS		(DSI0_BASE + 0x00c)
+
+static void mtk_disp_dsi_trigger_safe(void)
+{
+	int timeout = 500;
+	u32 v;
+
+	/* ждём DSI_BUSY (bit31) == 0, только чтение */
+	do {
+		v = readl(DSI0_STATUS);
+		if (!(v & BIT(31)))
+			break;
+		udelay(1000);
+	} while (--timeout > 0);
+
+	if (!timeout)
+		printf("mtk_disp: DSI busy timeout (status=0x%08x)\n", v);
+
+	mtk_disp_dsi_trigger();
+}
+
 /* ── vidconsole snapshot helper (RAM diag, block at DIAG_ADDR + 0x20) ── */
 
 static void mtk_disp_diag_vc(u32 magic)
@@ -236,7 +260,7 @@ static int mtk_disp_video_sync(struct udevice *dev)
 
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
-	mtk_disp_dsi_trigger();
+	mtk_disp_dsi_trigger_safe();
 
 	writel(0x2, DIAG_ADDR + 0x54);
 	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x58);
