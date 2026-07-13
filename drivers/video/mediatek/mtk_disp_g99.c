@@ -64,7 +64,12 @@
 
 /* ── MUTEX0 registers ───────────────────────────────────────────────── */
 
+#define MUTEX0_INTEN		(MUTEX0_BASE + 0x000)
+#define MUTEX0_INTSTA		(MUTEX0_BASE + 0x004)
+#define MUTEX0_MOD		(MUTEX0_BASE + 0x014)
+#define MUTEX0_SOF		(MUTEX0_BASE + 0x018)
 #define MUTEX0_EN		(MUTEX0_BASE + 0x020)
+#define DSI0_STATUS		(DSI0_BASE + 0x00c)
 
 /* ── DSI0 registers (MT6789-specific offsets) ────────────────────────── */
 
@@ -79,7 +84,7 @@
 #define DISP_HEIGHT		2400
 #define DISP_BPP		32
 #define DISP_STRIDE		(DISP_WIDTH * (DISP_BPP / 8))
-#define DISP_FB_SIZE		(DISP_STRIDE * DISP_HEIGHT)	/* ~10 MB */
+#define DISP_FB_SIZE		(DISP_STRIDE * DISP_HEIGHT)
 
 /* DSI CMDQ command: DCS 0x2C (Write Memory Start) */
 #define DSI_CMDQ_WRITE_MEM_START	0x2c3909
@@ -150,8 +155,10 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	/* Шаг 2: deassert SW reset (write-1-to-deassert) */
 	writel(0x1, MMSYS_SW_RST);
 
-	/* Шаг 2.5: включить DSI контроллер (LK отключает перед передачей) */
-	writel(0x3, DSI0_CON);		/* бит 0 = DSI_EN, бит 1 = cmd mode */
+	/* Шаг 2.5: включить DSI контроллер (LK отключает перед передачей).
+	 * Используем read-modify-write чтобы не сбросить lane config / pixel
+	 * format, оставленные LK. */
+	writel(readl(DSI0_CON) | 0x3, DSI0_CON);
 
 	/*
 	 * Шаг 3: MMSYS routing — путь через DITHER0.
@@ -164,23 +171,26 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(0x0, MMSYS_DSI0_SEL_IN);	/* DSI0 input ← DITHER0 */
 
 	/* Шаг 4: конфигурация OVL0 Layer 0 */
-	writel(0x1,        OVL0_UPDATE);	/* enable via UPDATE reg */
+	writel(0x2,        OVL0_CON);		/* manual shadow reload mode */
+	writel(0x1,        OVL0_UPDATE);
 	writel(0x201e,     OVL0_CFG);
 	writel(0x05000001, OVL0_SRC_CON);
 	writel(0x1,        OVL0_L0_CON);
-	writel(0x1001020,  OVL0_L0_CFG);	/* ARGB8888 */
-	writel(0x10e0,     OVL0_L0_PITCH);	/* stride = 1080*4 = 4320 */
-	writel(0x09600438, OVL0_L0_SRC_SIZE);	/* 2400<<16 | 1080 */
+	writel(0x1001020,  OVL0_L0_CFG);
+	writel(DISP_STRIDE, OVL0_L0_PITCH);
+	writel(0x09600438, OVL0_L0_SRC_SIZE);
 	writel(0x0,        OVL0_L0_OFFSET);
 	writel(fb_phys,    OVL0_L0_ADDR);
 
 	/* Шаг 5: конфигурация RDMA0 */
 	writel(0x1f,       RDMA0_EN);
-	writel(fb_phys,    RDMA0_MEM_ADDR);	/* note: may not stick (HW) */
+	writel(fb_phys,    RDMA0_MEM_ADDR);
 	writel(0x09600438, RDMA0_SRC_SIZE);
 
-	/* Шаг 6: включить MUTEX0 */
-	writel(0x1, MUTEX0_EN);
+	/* Шаг 6: настроить MUTEX0 */
+	writel(0x1,       MUTEX0_INTSTA);	/* clear pending SOF irq */
+	writel(0x1f001,   MUTEX0_MOD);		/* modules waiting for SOF */
+	writel(0x1b,      MUTEX0_EN);		/* LK value: 0x1b */
 
 	/* Шаг 7: триггер shadow reload OVL */
 	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
@@ -190,7 +200,8 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 
 static void mtk_disp_dsi_trigger(void)
 {
-	u32 start;
+	u32 start, busy;
+	int timeout;
 
 	writel(DSI_CMDQ_WRITE_MEM_START, DSI0_CMDQ);
 	writel(0x8001, DSI0_CMDQ_SIZE);
@@ -198,6 +209,14 @@ static void mtk_disp_dsi_trigger(void)
 	start = readl(DSI0_START);
 	writel(start & ~1, DSI0_START);	/* clear bit 0 (preserve other bits) */
 	writel(start | 1,  DSI0_START);	/* set bit 0 (trigger) */
+
+	/* Ждём завершения передачи на DSI */
+	timeout = 1000000;
+	do {
+		busy = readl(DSI0_STATUS) & 0x1;
+		if (!busy)
+			break;
+	} while (--timeout);
 }
 
 /* ── vidconsole snapshot helper (RAM diag, block at DIAG_ADDR + 0x20) ── */
@@ -262,12 +281,13 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	writel(0x1, MMSYS_DITHER0_MOUT);
 	writel(0x0, MMSYS_DSI0_SEL_IN);
 
+	writel(0x2,        OVL0_CON);
 	writel(0x1,        OVL0_UPDATE);
 	writel(0x201e,     OVL0_CFG);
 	writel(0x05000001, OVL0_SRC_CON);
 	writel(0x1,        OVL0_L0_CON);
 	writel(0x1001020,  OVL0_L0_CFG);
-	writel(0x10e0,     OVL0_L0_PITCH);
+	writel(DISP_STRIDE, OVL0_L0_PITCH);
 	writel(0x09600438, OVL0_L0_SRC_SIZE);
 	writel(0x0,        OVL0_L0_OFFSET);
 	writel(fb_phys,    OVL0_L0_ADDR);
@@ -275,9 +295,11 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	writel(0x1f,       RDMA0_EN);
 	writel(0x09600438, RDMA0_SRC_SIZE);
 
-	writel(0x1, MUTEX0_EN);
+	writel(0x1,       MUTEX0_INTSTA);
+	writel(0x1f001,   MUTEX0_MOD);
+	writel(0x1b,      MUTEX0_EN);
 
-	writel(0x1b, OVL0_EN);			/* restore LK value */
+	writel(0x1b, OVL0_EN);
 	writel(OVL_SHADOW_RELOAD, OVL0_UPDATE);
 	mtk_disp_dsi_trigger();
 
