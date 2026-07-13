@@ -245,11 +245,13 @@ static int mtk_disp_video_sync(struct udevice *dev)
 		once = 1;
 	}
 
-	/* DIAG: read first pixel of FB before flush */
-	writel(readl((u32 *)uc_priv->fb), DIAG_ADDR + 0x60);
-	writel(readl((u32 *)uc_priv->fb + 1), DIAG_ADDR + 0x64);
-	writel(readl((u32 *)uc_priv->fb + 2), DIAG_ADDR + 0x68);
-	writel(readl((u32 *)uc_priv->fb + 1080), DIAG_ADDR + 0x6c);
+	/* DIAG: 8 pixels at text location (row 16, col 0) before flush */
+	{
+		u32 *row16 = (u32 *)uc_priv->fb + 16 * (uc_priv->line_length / 4);
+		int i;
+		for (i = 0; i < 8; i++)
+			writel(readl(row16 + i), DIAG_ADDR + 0x60 + i * 4);
+	}
 
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
@@ -257,11 +259,15 @@ static int mtk_disp_video_sync(struct udevice *dev)
 
 	writel(0x2, DIAG_ADDR + 0x54);
 
-	/* DIAG: after-flush snapshot — те же пиксели из DRAM */
-	writel(readl((u32 *)uc_priv->fb), DIAG_ADDR + 0x70);
-	writel(readl((u32 *)uc_priv->fb + 1080), DIAG_ADDR + 0x74);
+	/* DIAG: те же 8 пикселей после flush (из DRAM) */
+	{
+		u32 *row16 = (u32 *)uc_priv->fb + 16 * (uc_priv->line_length / 4);
+		int i;
+		for (i = 0; i < 8; i++)
+			writel(readl(row16 + i), DIAG_ADDR + 0x80 + i * 4);
+	}
 
-	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x78);
+	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0xa0);
 
 	return 0;
 }
