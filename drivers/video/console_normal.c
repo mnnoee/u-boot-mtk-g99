@@ -11,6 +11,8 @@
 #include <video.h>
 #include <video_console.h>
 #include <video_font.h>		/* Get font data, width and height */
+#include <asm/io.h>
+#include <cpu_func.h>
 #include "vidconsole_internal.h"
 
 static int console_set_row(struct udevice *dev, uint row, int clr)
@@ -88,6 +90,20 @@ static int console_putc_xy(struct udevice *dev, uint x_frac, uint y, int cp)
 	x = VID_TO_PIXEL(x_frac);
 	start = vid_priv->fb + linenum * vid_priv->line_length + x * pbytes;
 	line = start;
+
+	/* TEMP diag — first character start address */
+	{
+		static bool first = true;
+		if (first) {
+			writel((u32)(ulong)start, 0xff4a1478);
+			writel((u32)(ulong)vid_priv->fb, 0xff4a147c);
+			writel(linenum, 0xff4a1480);
+			writel(x, 0xff4a1484);
+			writel(vid_priv->line_length, 0xff4a1488);
+			flush_dcache_range(0xff4a1478, 0xff4a148c);
+			first = false;
+		}
+	}
 
 	if (x_frac + VID_TO_POS(vc_priv->x_charsize) > vc_priv->xsize_frac)
 		return -EAGAIN;
