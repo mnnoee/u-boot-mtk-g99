@@ -11,8 +11,6 @@
 #include <video.h>
 #include <video_console.h>
 #include <video_font.h>		/* Get font data, width and height */
-#include <asm/io.h>
-#include <cpu_func.h>
 #include "vidconsole_internal.h"
 
 static int console_set_row(struct udevice *dev, uint row, int clr)
@@ -95,19 +93,6 @@ static int console_putc_xy(struct udevice *dev, uint x_frac, uint y, int cp)
 		return -EAGAIN;
 
 	ret = fill_char_vertically(pfont, &line, vid_priv, fontdata, NORMAL_DIRECTION);
-
-	/* TEMP diag — read back first 4 pixels RIGHT AFTER draw */
-	{
-		static bool once;
-		if (!once) {
-			writel(readl((u32 *)start), 0xff4a14a0);
-			writel(readl((u32 *)start + 1), 0xff4a14a4);
-			writel(readl((u32 *)start + 2), 0xff4a14a8);
-			writel(readl((u32 *)start + 3), 0xff4a14ac);
-			flush_dcache_range(0xff4a14a0, 0xff4a14b0);
-			once = true;
-		}
-	}
 	if (ret)
 		return ret;
 

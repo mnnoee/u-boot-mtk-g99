@@ -19,6 +19,7 @@
 #include <video_console.h>
 #include <asm/io.h>
 #include <asm/cache.h>
+#include <linux/delay.h>
 
 /* ── Hardware register bases ─────────────────────────────────────────── */
 
@@ -65,9 +66,18 @@
 
 /* ── DSI0 registers (MT6789-specific offsets) ────────────────────────── */
 
+#define DSI0_INTEN		(DSI0_BASE + 0x008)
+#define DSI0_INTSTA		(DSI0_BASE + 0x00c)
+#define DSI0_CON_CTRL		(DSI0_BASE + 0x010)
 #define DSI0_START		(DSI0_BASE + 0x000)
 #define DSI0_CMDQ_SIZE		(DSI0_BASE + 0x060)
+#define DSI0_RACK		(DSI0_BASE + 0x084)
 #define DSI0_CMDQ		(DSI0_BASE + 0xd00)	/* MT6789-specific: NOT 0x200 */
+
+/* DSI_INTSTA / INTEN bit definitions */
+#define DSI_BUSY		BIT(31)
+#define CMD_DONE		BIT(1)
+#define LPRX_RD_RDY		BIT(0)
 
 /* ── Display parameters ─────────────────────────────────────────────── */
 
@@ -182,12 +192,59 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 
 static void mtk_disp_dsi_trigger(void)
 {
+	int timeout;
+	u32 v;
+
+	/* Шаг 1: ждём DSI_BUSY == 0 */
+	timeout = 2000;
+	do {
+		v = readl(DSI0_INTSTA);
+		if (!(v & DSI_BUSY))
+			break;
+		udelay(1000);
+	} while (--timeout > 0);
+
+	if (!timeout) {
+		printf("mtk_disp: DSI stuck busy (INTSTA=0x%08x)"
+		       " — resetting\n", v);
+		writel(0x1, DSI0_CON_CTRL);	/* DSI_RESET */
+		writel(0x0, DSI0_CON_CTRL);
+		writel(0x2, DSI0_CON_CTRL);	/* DSI_EN */
+	}
+
+	/* Шаг 2: чистим pending INTSTA (CMD_DONE, LPRX_RD_RDY) */
+	writel(readl(DSI0_INTSTA) & ~(CMD_DONE | LPRX_RD_RDY), DSI0_INTSTA);
+
+	/* Шаг 3: включаем прерывания (CMD_DONE, LPRX_RD_RDY) */
+	v = readl(DSI0_INTEN);
+	if (!(v & (CMD_DONE | LPRX_RD_RDY)))
+		writel(v | CMD_DONE | LPRX_RD_RDY, DSI0_INTEN);
+
+	/* Шаг 4: пишем CMDQ */
 	writel(DSI_CMDQ_WRITE_MEM_START, DSI0_CMDQ);
-	/* Clear trigger bit first, then set — ensures rising edge */
-	writel(0x0001, DSI0_CMDQ_SIZE);
+
+	/* Шаг 5: триггер CMDQ (одна запись, без pre-clear) */
 	writel(0x8001, DSI0_CMDQ_SIZE);
+
+	/* Шаг 6: DSI_START: 0 → 1 → 0 (как в LK) */
 	writel(0x0, DSI0_START);
 	writel(0x1, DSI0_START);
+	writel(0x0, DSI0_START);
+
+	/* Шаг 7: ждём CMD_DONE */
+	timeout = 100;
+	do {
+		v = readl(DSI0_INTSTA);
+		if (v & CMD_DONE)
+			break;
+		udelay(1000);
+	} while (--timeout > 0);
+
+	/* Шаг 8: чистим CMD_DONE */
+	writel(readl(DSI0_INTSTA) & ~CMD_DONE, DSI0_INTSTA);
+
+	if (!timeout)
+		printf("mtk_disp: DSI CMD_DONE timeout\n");
 }
 
 /* ── vidconsole snapshot helper (RAM diag, block at DIAG_ADDR + 0x20) ── */
@@ -227,7 +284,6 @@ static int mtk_disp_video_sync(struct udevice *dev)
 {
 	writel(0xF00DFACE, DIAG_ADDR + 0x50);
 
-	static int once;
 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
 
 	if (!uc_priv || !uc_priv->fb || !uc_priv->fb_size) {
@@ -236,33 +292,12 @@ static int mtk_disp_video_sync(struct udevice *dev)
 		return 0;
 	}
 
-	if (!once) {
-		struct video_uc_plat *plat = dev_get_uclass_plat(dev);
-		printf("mtk_disp: sync fb=%p plat_base=%lx fb_size=%d "
-		       "(match=%s)\n",
-		       uc_priv->fb, (ulong)plat->base, uc_priv->fb_size,
-		       (ulong)uc_priv->fb == plat->base ? "YES" : "NO");
-		/* vidconsole snapshot — после попытки lcdputs */
-		mtk_disp_diag_vc(0xC0FFEE01);
-		once = 1;
-	}
-
-	/* DIAG: DSI status before/after trigger */
-	writel(readl(DSI0_BASE + 0x0c), DIAG_ADDR + 0x60);
-	writel(readl(DSI0_CMDQ_SIZE),  DIAG_ADDR + 0x64);
-	writel(readl(DSI0_START),      DIAG_ADDR + 0x68);
-
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
 	mtk_disp_dsi_trigger();
 
-	/* DIAG: DSI status AFTER trigger */
-	writel(readl(DSI0_BASE + 0x0c), DIAG_ADDR + 0x6c);
-	writel(readl(DSI0_CMDQ_SIZE),  DIAG_ADDR + 0x70);
-	writel(readl(DSI0_START),      DIAG_ADDR + 0x74);
-
 	writel(0x2, DIAG_ADDR + 0x54);
-	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x78);
+	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x58);
 
 	return 0;
 }
