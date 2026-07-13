@@ -242,6 +242,14 @@ static int mtk_disp_probe(struct udevice *dev)
 	uc_priv->line_length = DISP_STRIDE;
 	uc_priv->y_start_offset = 200;
 
+	/*
+	 * Явно синхронизируем fb/fb_size с plat->base/size.
+	 * video_post_probe() сделает то же самое через map_sysmem(),
+	 * но uc_priv->fb может быть прочитан vidconsole и до post_probe.
+	 */
+	uc_priv->fb = (void *)fb_phys;
+	uc_priv->fb_size = DISP_FB_SIZE;
+
 	printf("mtk_disp: %dx%d @ 0x%lx\n",
 	       DISP_WIDTH, DISP_HEIGHT, fb_phys);
 	printf("fb=%p plat_base=%lx\n", uc_priv->fb, (ulong)plat->base);
