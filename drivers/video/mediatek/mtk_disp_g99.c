@@ -223,11 +223,16 @@ static void mtk_disp_diag_vc(u32 magic)
 
 static int mtk_disp_video_sync(struct udevice *dev)
 {
+	writel(0xF00DFACE, DIAG_ADDR + 0x50);
+
 	static int once;
 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
 
-	if (!uc_priv || !uc_priv->fb || !uc_priv->fb_size)
+	if (!uc_priv || !uc_priv->fb || !uc_priv->fb_size) {
+		writel(0x1, DIAG_ADDR + 0x54);
+		flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x58);
 		return 0;
+	}
 
 	if (!once) {
 		struct video_uc_plat *plat = dev_get_uclass_plat(dev);
@@ -243,6 +248,9 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
 	mtk_disp_dsi_trigger();
+
+	writel(0x2, DIAG_ADDR + 0x54);
+	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x58);
 
 	return 0;
 }
