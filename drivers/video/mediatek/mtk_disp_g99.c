@@ -178,38 +178,18 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(OVL_SHADOW_RELOAD, OVL0_EN);
 }
 
-/* ── ARM Generic Timer busy-wait (no udelay, works without U-Boot timer) ── */
-
-static u64 mtk_disp_get_cntvct(void)
-{
-	u64 val;
-	asm volatile("mrs %0, cntvct_el0" : "=r"(val));
-	return val;
-}
-
-static void mtk_disp_wait_us(u64 us)
-{
-	u64 freq, start, now;
-
-	asm volatile("mrs %0, cntfrq_el0" : "=r"(freq));
-	if (!freq)
-		return;
-	start = mtk_disp_get_cntvct();
-	now = start;
-	while ((now - start) < (us * freq) / 1000000)
-		now = mtk_disp_get_cntvct();
-}
-
 /* ── DSI Write Memory Start trigger ─────────────────────────────────-- */
 
 static void mtk_disp_dsi_trigger(void)
 {
+	u32 start;
+
 	writel(DSI_CMDQ_WRITE_MEM_START, DSI0_CMDQ);
 	writel(0x8001, DSI0_CMDQ_SIZE);
-	writel(0x0, DSI0_START);
-	writel(0x1, DSI0_START);
-	writel(0x0, DSI0_START);
-	mtk_disp_wait_us(20000);
+
+	start = readl(DSI0_START);
+	writel(start & ~1, DSI0_START);	/* clear bit 0 (preserve other bits) */
+	writel(start | 1,  DSI0_START);	/* set bit 0 (trigger) */
 }
 
 /* ── vidconsole snapshot helper (RAM diag, block at DIAG_ADDR + 0x20) ── */
@@ -259,6 +239,11 @@ static int mtk_disp_video_sync(struct udevice *dev)
 
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
+
+	/* OVL shadow reload + RDMA restart (pipeline refresh) */
+	writel(OVL_SHADOW_RELOAD, OVL0_EN);
+	writel(0x1f, RDMA0_EN);
+
 	mtk_disp_dsi_trigger();
 
 	writel(0x2, DIAG_ADDR + 0x54);
