@@ -183,6 +183,8 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 static void mtk_disp_dsi_trigger(void)
 {
 	writel(DSI_CMDQ_WRITE_MEM_START, DSI0_CMDQ);
+	/* Clear trigger bit first, then set — ensures rising edge */
+	writel(0x0001, DSI0_CMDQ_SIZE);
 	writel(0x8001, DSI0_CMDQ_SIZE);
 	writel(0x0, DSI0_START);
 	writel(0x1, DSI0_START);
@@ -245,29 +247,22 @@ static int mtk_disp_video_sync(struct udevice *dev)
 		once = 1;
 	}
 
-	/* DIAG: 8 pixels at text location (row 16, col 0) before flush */
-	{
-		u32 *row16 = (u32 *)uc_priv->fb + 16 * (uc_priv->line_length / 4);
-		int i;
-		for (i = 0; i < 8; i++)
-			writel(readl(row16 + i), DIAG_ADDR + 0x60 + i * 4);
-	}
+	/* DIAG: DSI status before/after trigger */
+	writel(readl(DSI0_BASE + 0x0c), DIAG_ADDR + 0x60);
+	writel(readl(DSI0_CMDQ_SIZE),  DIAG_ADDR + 0x64);
+	writel(readl(DSI0_START),      DIAG_ADDR + 0x68);
 
 	flush_dcache_range((ulong)uc_priv->fb,
 			   (ulong)uc_priv->fb + uc_priv->fb_size);
 	mtk_disp_dsi_trigger();
 
+	/* DIAG: DSI status AFTER trigger */
+	writel(readl(DSI0_BASE + 0x0c), DIAG_ADDR + 0x6c);
+	writel(readl(DSI0_CMDQ_SIZE),  DIAG_ADDR + 0x70);
+	writel(readl(DSI0_START),      DIAG_ADDR + 0x74);
+
 	writel(0x2, DIAG_ADDR + 0x54);
-
-	/* DIAG: те же 8 пикселей после flush (из DRAM) */
-	{
-		u32 *row16 = (u32 *)uc_priv->fb + 16 * (uc_priv->line_length / 4);
-		int i;
-		for (i = 0; i < 8; i++)
-			writel(readl(row16 + i), DIAG_ADDR + 0x80 + i * 4);
-	}
-
-	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0xa0);
+	flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x78);
 
 	return 0;
 }
