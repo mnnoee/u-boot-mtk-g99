@@ -11,7 +11,7 @@
  * Data: 16MB - 16 bytes
  * Cache flush: only the 64-byte lines touched per write
  */
-#define EARLY_LOG_BASE	0x48000000
+#define EARLY_LOG_BASE	0x43FFF000
 #define EARLY_LOG_HDRSZ	16
 #define EARLY_LOG_SIZE	0x1000000	/* 16 MB */
 #define EARLY_LOG_BUFSZ	(EARLY_LOG_SIZE - EARLY_LOG_HDRSZ)
