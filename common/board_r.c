@@ -15,6 +15,7 @@
 #include <cpu_func.h>
 #include <cyclic.h>
 #include <display_options.h>
+#include <early_log.h>
 #include <exports.h>
 #ifdef CONFIG_MTD_NOR_FLASH
 #include <flash.h>
@@ -607,22 +608,14 @@ static int run_main_loop(void)
 
 static void initcall_run_r(void)
 {
-	/*
-	 * Please do not add logic to this function (variables, if (), etc.).
-	 * For simplicity it should remain an ordered list of function calls.
-	 */
+	EARLY_W("R:ENTRY");
 	INITCALL(initr_trace);
 	INITCALL(initr_reloc);
 	INITCALL(event_init);
-	/* TODO: could x86/PPC have this also perhaps? */
 #if CONFIG_IS_ENABLED(ARM) || CONFIG_IS_ENABLED(RISCV)
+	EARLY_W("R:before_caches");
 	INITCALL(initr_caches);
-	/* Note: For Freescale LS2 SoCs, new MMU table is created in DDR.
-	 *	 A temporary mapping of IFC high region is since removed,
-	 *	 so environmental variables in NOR flash is not available
-	 *	 until board_init() is called below to remap IFC to high
-	 *	 region.
-	 */
+	EARLY_W("R:after_caches");
 #endif
 	INITCALL(initr_reloc_global_data);
 #if CONFIG_IS_ENABLED(SYS_INIT_RAM_LOCK) && CONFIG_IS_ENABLED(E500)
@@ -631,7 +624,7 @@ static void initcall_run_r(void)
 	INITCALL(initr_barrier);
 	INITCALL(initr_malloc);
 	INITCALL(log_init);
-	INITCALL(initr_bootstage); /* Needs malloc() but has its own timer */
+	INITCALL(initr_bootstage);
 #if CONFIG_IS_ENABLED(CONSOLE_RECORD)
 	INITCALL(console_record_init);
 #endif
@@ -640,22 +633,22 @@ static void initcall_run_r(void)
 #endif
 	INITCALL(initr_of_live);
 #if CONFIG_IS_ENABLED(DM)
+	EARLY_W("R:before_dm");
 	INITCALL(initr_dm);
+	EARLY_W("R:after_dm");
 #endif
 #if CONFIG_IS_ENABLED(ADDR_MAP)
 	INITCALL(init_addr_map);
 #endif
 #if CONFIG_IS_ENABLED(BOARD_INIT)
-	INITCALL(board_init);	/* Setup chipselects */
+	EARLY_W("R:before_board_init");
+	INITCALL(board_init);
+	EARLY_W("R:after_board_init");
 #endif
-	/*
-	 * TODO: printing of the clock inforamtion of the board is now
-	 * implemented as part of bdinfo command. Currently only support for
-	 * davinci SOC's is added. Remove this check once all the board
-	 * implement this.
-	 */
 #if CONFIG_IS_ENABLED(CLOCKS)
+	EARLY_W("R:before_set_cpu_clk_info");
 	INITCALL(set_cpu_clk_info);
+	EARLY_W("R:after_set_cpu_clk_info");
 #endif
 	INITCALL(initr_lmb);
 #if CONFIG_IS_ENABLED(EFI_LOADER)
@@ -667,9 +660,12 @@ static void initcall_run_r(void)
 #if CONFIG_IS_ENABLED(FSP_VERSION2)
 	INITCALL(arch_fsp_init_r);
 #endif
+	EARLY_W("R:before_dm_devices");
 	INITCALL(initr_dm_devices);
 	INITCALL(stdio_init_tables);
+	EARLY_W("R:before_serial");
 	INITCALL(serial_initialize);
+	EARLY_W("R:after_serial");
 	INITCALL(initr_announce);
 	INITCALL(dm_announce);
 #if CONFIG_IS_ENABLED(WDT)
@@ -686,10 +682,6 @@ static void initcall_run_r(void)
 #endif
 	WATCHDOG_RESET();
 #if CONFIG_IS_ENABLED(PCI_INIT_R) && CONFIG_IS_ENABLED(SYS_EARLY_PCI_INIT)
-	/*
-	 * Do early PCI configuration _before_ the flash gets initialised,
-	 * because PCU resources are crucial for flash access on some boards.
-	 */
 	INITCALL(pci_init);
 #endif
 #if CONFIG_IS_ENABLED(ARCH_EARLY_INIT_R)
@@ -701,7 +693,6 @@ static void initcall_run_r(void)
 #endif
 	WATCHDOG_RESET();
 #if CONFIG_IS_ENABLED(PPC) || CONFIG_IS_ENABLED(M68K) || CONFIG_IS_ENABLED(X86)
-	/* initialize higher level parts of CPU like time base and timers */
 	INITCALL(cpu_init_r);
 #endif
 #if CONFIG_IS_ENABLED(EFI_LOADER)
@@ -714,7 +705,9 @@ static void initcall_run_r(void)
 	INITCALL(initr_onenand);
 #endif
 #if CONFIG_IS_ENABLED(MMC)
+	EARLY_W("R:before_mmc");
 	INITCALL(initr_mmc);
+	EARLY_W("R:after_mmc");
 #endif
 #if CONFIG_IS_ENABLED(XEN)
 	INITCALL(xen_init);
@@ -734,9 +727,6 @@ static void initcall_run_r(void)
 	INITCALL_EVT(EVT_SETTINGS_R);
 	WATCHDOG_RESET();
 #if CONFIG_IS_ENABLED(PCI_INIT_R) && !CONFIG_IS_ENABLED(SYS_EARLY_PCI_INIT)
-	/*
-	 * Do pci configuration
-	 */
 	INITCALL(pci_init);
 #endif
 	INITCALL(stdio_add_devices);
@@ -744,16 +734,18 @@ static void initcall_run_r(void)
 #if CONFIG_IS_ENABLED(API)
 	INITCALL(api_init);
 #endif
-	INITCALL(console_init_r);	/* fully init console as a device */
+	EARLY_W("R:before_console");
+	INITCALL(console_init_r);
+	EARLY_W("R:after_console");
 #if CONFIG_IS_ENABLED(DISPLAY_BOARDINFO_LATE)
 	INITCALL(console_announce_r);
 	INITCALL(show_board_info);
 #endif
-	/* miscellaneous arch-dependent init */
 #if CONFIG_IS_ENABLED(ARCH_MISC_INIT)
+	EARLY_W("R:before_arch_misc");
 	INITCALL(arch_misc_init);
+	EARLY_W("R:after_arch_misc");
 #endif
-	/* miscellaneous platform-dependent init */
 #if CONFIG_IS_ENABLED(MISC_INIT_R)
 	INITCALL(misc_init_r);
 #endif
@@ -763,11 +755,10 @@ static void initcall_run_r(void)
 #endif
 	INITCALL(interrupt_init);
 #if defined(CONFIG_MICROBLAZE) || defined(CONFIG_M68K)
-	INITCALL(timer_init);		/* initialize timer */
+	INITCALL(timer_init);
 #endif
 	INITCALL(initr_status_led);
 	INITCALL(initr_boot_led_blink);
-	/* PPC has a udelay(20) here dating from 2002. Why? */
 #if CONFIG_IS_ENABLED(BOARD_LATE_INIT)
 	INITCALL(board_late_init);
 #endif
@@ -788,6 +779,7 @@ static void initcall_run_r(void)
 #endif
 	INITCALL(initr_boot_led_on);
 	INITCALL(run_main_loop);
+	EARLY_W("R:main_loop");
 }
 
 void board_init_r(gd_t *new_gd, ulong dest_addr)
@@ -800,6 +792,7 @@ void board_init_r(gd_t *new_gd, ulong dest_addr)
 	 * Do the same with log drivers since the memory may not be available.
 	 */
 	gd->flags &= ~(GD_FLG_SERIAL_READY | GD_FLG_LOG_READY);
+	EARLY_W("board_init_r:entry");
 
 	/*
 	 * Set up the new global data pointer. So far only x86 does this

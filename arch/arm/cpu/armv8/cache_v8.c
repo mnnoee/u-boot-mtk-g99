@@ -10,13 +10,21 @@
 #include <cpu_func.h>
 #include <hang.h>
 #include <log.h>
+#include <stdio.h>
 #include <asm/cache.h>
 #include <asm/global_data.h>
 #include <asm/system.h>
 #include <asm/armv8/mmu.h>
 #include <linux/errno.h>
+#include <early_log.h>
 
 DECLARE_GLOBAL_DATA_PTR;
+
+#define EARLY_WF(fmt, ...) do { \
+	char _buf[80]; \
+	snprintf(_buf, sizeof(_buf), "[EARLY] " fmt "\n", ##__VA_ARGS__); \
+	early_log_write(_buf); \
+} while (0)
 
 #if !CONFIG_IS_ENABLED(SYS_DCACHE_OFF)
 
@@ -248,6 +256,8 @@ static u64 *create_table(void)
 
 	/* Allocate MAX_PTE_ENTRIES pte entries */
 	gd->arch.tlb_fillptr += pt_len;
+
+	EARLY_WF("create_table: alloc@0x%lx", (unsigned long)new_table);
 
 	if (gd->arch.tlb_fillptr - gd->arch.tlb_addr > gd->arch.tlb_size)
 		panic("Insufficient RAM for page table: 0x%lx > 0x%lx. "
@@ -717,6 +727,8 @@ void setup_pgtables(void)
 	if (!gd->arch.tlb_fillptr || !gd->arch.tlb_addr)
 		panic("Page table pointer not setup.");
 
+	EARLY_W("setup_pgtables:entry");
+
 	/*
 	 * Allocate the first level we're on with invalidate entries.
 	 * If the starting level is 0 (va_bits >= 39), then this is our
@@ -734,6 +746,8 @@ static void setup_all_pgtables(void)
 	u64 tlb_addr = gd->arch.tlb_addr;
 	u64 tlb_size = gd->arch.tlb_size;
 
+	EARLY_W("setup_all_pgtables:entry");
+
 	/* Reset the fill ptr */
 	gd->arch.tlb_fillptr = tlb_addr;
 
@@ -744,16 +758,22 @@ static void setup_all_pgtables(void)
 	gd->arch.tlb_size -= (uintptr_t)gd->arch.tlb_fillptr -
 			     (uintptr_t)gd->arch.tlb_addr;
 	gd->arch.tlb_addr = gd->arch.tlb_fillptr;
+	EARLY_W("setup_all:creating_emergency");
 	setup_pgtables();
 	gd->arch.tlb_emerg = gd->arch.tlb_addr;
 	gd->arch.tlb_addr = tlb_addr;
 	gd->arch.tlb_size = tlb_size;
+	EARLY_W("setup_all_pgtables:exit");
 }
 
 /* to activate the MMU we need to set up virtual memory */
 __weak void mmu_setup(void)
 {
 	int el;
+
+	EARLY_W("mmu_setup:entry");
+	EARLY_WF("tlb_addr=0x%lx sz=0x%lx", gd->arch.tlb_addr, gd->arch.tlb_size);
+	EARLY_WF("ram_top=0x%lx reloc=0x%lx", gd->ram_top, gd->relocaddr);
 
 	/* Set up page tables only once */
 	if (!gd->arch.tlb_fillptr)
@@ -764,7 +784,9 @@ __weak void mmu_setup(void)
 			  MEMORY_ATTRIBUTES);
 
 	/* enable the mmu */
+	EARLY_W("mmu_setup:before_mmu_on");
 	set_sctlr(get_sctlr() | CR_M);
+	EARLY_W("mmu_setup:after_mmu_on");
 }
 
 /*
@@ -840,7 +862,9 @@ void dcache_enable(void)
 	if (!gd->arch.tlb_fillptr)
 		setup_all_pgtables();
 
+	EARLY_W("dcache_enable:before_cache_on");
 	set_sctlr(get_sctlr() | CR_C);
+	EARLY_W("dcache_enable:after_cache_on");
 }
 
 void dcache_disable(void)

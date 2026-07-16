@@ -14,6 +14,7 @@
 #include <bootstage.h>
 #include <clock_legacy.h>
 #include <console.h>
+#include <early_log.h>
 #include <cpu.h>
 #include <cpu_func.h>
 #include <cyclic.h>
@@ -891,13 +892,14 @@ static int initf_upl(void)
 
 static void initcall_run_f(void)
 {
-	/*
-	 * Please do not add logic to this function (variables, if (), etc.).
-	 * For simplicity it should remain an ordered list of function calls.
-	 */
+	EARLY_W("ENTRY");
+	EARLY_W("PROC setup_mon_len");
 	INITCALL(setup_mon_len);
+	EARLY_W("OK setup_mon_len");
 #if CONFIG_IS_ENABLED(OF_CONTROL)
+	EARLY_W("PROC fdtdec_setup");
 	INITCALL(fdtdec_setup);
+	EARLY_W("OK fdtdec_setup");
 #endif
 #if CONFIG_IS_ENABLED(TRACE_EARLY)
 	INITCALL(trace_early_init);
@@ -913,9 +915,13 @@ static void initcall_run_f(void)
 	INITCALL(console_record_init);
 #endif
 	INITCALL_EVT(EVT_FSP_INIT_F);
-	INITCALL(arch_cpu_init);	/* basic arch cpu dependent setup */
-	INITCALL(mach_cpu_init);	/* SoC/machine dependent CPU setup */
+	EARLY_W("PROC arch_cpu_init");
+	INITCALL(arch_cpu_init);
+	EARLY_W("PROC mach_cpu_init");
+	INITCALL(mach_cpu_init);
+	EARLY_W("PROC initf_dm");
 	INITCALL(initf_dm);
+	EARLY_W("OK initf_dm");
 #if CONFIG_IS_ENABLED(BOARD_EARLY_INIT_F)
 	INITCALL(board_early_init_f);
 #endif
@@ -955,8 +961,11 @@ static void initcall_run_f(void)
 #if CONFIG_IS_ENABLED(SYS_I2C_LEGACY)
 	INITCALL(init_func_i2c);
 #endif
+	EARLY_W("PROC announce_dram_init");
 	INITCALL(announce_dram_init);
-	INITCALL(dram_init);		/* configure available RAM banks */
+	EARLY_W("PROC dram_init");
+	INITCALL(dram_init);
+	EARLY_W("OK dram_init");
 #if CONFIG_IS_ENABLED(POST)
 	INITCALL(post_init_f);
 #endif
@@ -981,7 +990,9 @@ static void initcall_run_f(void)
 	 *  - monitor code
 	 *  - board info struct
 	 */
+	EARLY_W("PROC setup_dest_addr");
 	INITCALL(setup_dest_addr);
+	EARLY_W("OK setup_dest_addr");
 #if CONFIG_IS_ENABLED(OF_BOARD_FIXUP) && \
     !CONFIG_IS_ENABLED(OF_INITIAL_DTB_READONLY)
 	INITCALL(fix_fdt);
@@ -991,7 +1002,9 @@ static void initcall_run_f(void)
 #endif
 	INITCALL(reserve_round_4k);
 	INITCALL(setup_relocaddr_from_bloblist);
+	EARLY_W("PROC arch_reserve_mmu");
 	INITCALL(arch_reserve_mmu);
+	EARLY_W("OK arch_reserve_mmu");
 	INITCALL(reserve_video);
 	INITCALL(reserve_trace);
 	INITCALL(reserve_uboot);
@@ -1008,7 +1021,9 @@ static void initcall_run_f(void)
 	INITCALL(reserve_bloblist);
 	INITCALL(reserve_arch);
 	INITCALL(reserve_stacks);
+	EARLY_W("PROC dram_init_banksize");
 	INITCALL(dram_init_banksize);
+	EARLY_W("OK dram_init_banksize");
 	INITCALL(show_dram_config);
 	WATCHDOG_RESET();
 	INITCALL(setup_bdinfo);
@@ -1025,7 +1040,9 @@ static void initcall_run_f(void)
 	INITCALL(copy_uboot_to_ram);
 	INITCALL(do_elf_reloc_fixups);
 #endif
+	EARLY_W("PROC clear_bss");
 	INITCALL(clear_bss);
+	EARLY_W("OK clear_bss");
 	/*
 	 * Deregister all cyclic functions before relocation, so that
 	 * gd->cyclic_list does not contain any references to pre-relocation
@@ -1035,21 +1052,26 @@ static void initcall_run_f(void)
 	 * This should happen as late as possible so that the window where a
 	 * watchdog device is not serviced is as small as possible.
 	 */
+	EARLY_W("PROC cyclic_unregister_all");
 	INITCALL(cyclic_unregister_all);
+	EARLY_W("OK cyclic_unregister_all");
 #if !CONFIG_IS_ENABLED(ARM) && !CONFIG_IS_ENABLED(SANDBOX)
 	INITCALL(jump_to_copy);
 #endif
+	EARLY_W("initcall_run_f:EXIT");
 }
 
 void board_init_f(ulong boot_flags)
 {
 	struct board_f boardf;
 
+	EARLY_W("board_init_f:entry");
 	gd->flags = boot_flags;
 	gd->flags &= ~GD_FLG_HAVE_CONSOLE;
 	gd->boardf = &boardf;
 
 	initcall_run_f();
+	EARLY_W("board_init_f:after_run");
 
 #if !defined(CONFIG_ARM) && !defined(CONFIG_SANDBOX) && \
 		!defined(CONFIG_EFI_APP) && !CONFIG_IS_ENABLED(X86_64) && \

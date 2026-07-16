@@ -10,6 +10,7 @@
 #include <div64.h>
 #include <dm.h>
 #include <asm/io.h>
+#include <early_log.h>
 #include <linux/bitops.h>
 #include <linux/delay.h>
 
@@ -464,7 +465,9 @@ static ulong mtk_topckgen_get_mux_rate(struct clk *clk, u32 off)
 	const struct mtk_composite *mux = &priv->tree->muxes[off];
 	u32 index;
 
+	EARLY_W("mtk_cg:mux_rate:before_read");
 	index = readl(priv->base + mux->mux_reg);
+	EARLY_W("mtk_cg:mux_rate:after_read");
 	index &= mux->mux_mask << mux->mux_shift;
 	index = index >> mux->mux_shift;
 
@@ -536,14 +539,18 @@ static ulong mtk_topckgen_get_rate(struct clk *clk)
 	struct mtk_clk_priv *priv = dev_get_priv(clk->dev);
 	int id = mtk_clk_get_id(clk);
 
-	if (id < priv->tree->fdivs_offs)
+	if (id < priv->tree->fdivs_offs) {
+		EARLY_W("mtk_cg:top_rate:fclk");
 		return priv->tree->fclks[id].rate;
-	else if (id < priv->tree->muxes_offs)
+	} else if (id < priv->tree->muxes_offs) {
+		EARLY_W("mtk_cg:top_rate:factor");
 		return mtk_topckgen_get_factor_rate(clk, id -
 						    priv->tree->fdivs_offs);
-	else
+	} else {
+		EARLY_W("mtk_cg:top_rate:mux");
 		return mtk_topckgen_get_mux_rate(clk, id -
 						 priv->tree->muxes_offs);
+	}
 }
 
 static ulong mtk_infrasys_get_rate(struct clk *clk)
@@ -669,10 +676,12 @@ static int mtk_clk_gate_enable(struct clk *clk)
 	int id = mtk_clk_get_id(clk);
 	const struct mtk_gate *gate;
 
+	EARLY_W("cg_en:entry");
 	if (id < priv->tree->gates_offs)
 		return -EINVAL;
 
 	gate = &priv->gates[id - priv->tree->gates_offs];
+	EARLY_W("cg_en:before_writel");
 	return mtk_gate_enable(priv->base, gate);
 }
 

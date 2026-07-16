@@ -2,6 +2,7 @@
 #include <dm.h>
 #include <asm/io.h>
 #include <dt-bindings/clock/mediatek,mt6789-clk.h>
+#include <early_log.h>
 #include "clk-mtk.h"
 
 #define MT6789_PLL_FMAX	(3800UL * MHZ)
@@ -135,6 +136,9 @@ static const int msdc30_1_parents[] = {
 	CLK_TOP_MAINPLL_D6_D2,
 	CLK_TOP_MAINPLL_D7_D2,
 	CLK_TOP_MSDCPLL_D2,
+	CLK_TOP_F26M,
+	CLK_TOP_F26M,
+	CLK_TOP_F26M,
 };
 
 static const int uart_parents[] = {
@@ -281,16 +285,19 @@ static const struct mtk_gate infra_ao_clks[] = {
 
 static int mt6789_apmixedsys_probe(struct udevice *dev)
 {
+	EARLY_W("clk:apmixedsys:probe");
 	return mtk_common_clk_init(dev, &mt6789_clk_tree);
 }
 
 static int mt6789_topckgen_probe(struct udevice *dev)
 {
+	EARLY_W("clk:topckgen:probe");
 	return mtk_common_clk_init(dev, &mt6789_clk_tree);
 }
 
 static int mt6789_infracfg_ao_probe(struct udevice *dev)
 {
+	EARLY_W("clk:infracfg:probe");
 	return mtk_common_clk_gate_init(dev, &mt6789_clk_tree, infra_ao_clks);
 }
 
@@ -316,7 +323,6 @@ U_BOOT_DRIVER(mtk_clk_apmixedsys) = {
 	.probe = mt6789_apmixedsys_probe,
 	.priv_auto = sizeof(struct mtk_clk_priv),
 	.ops = &mtk_clk_apmixedsys_ops,
-	.flags = DM_FLAG_PRE_RELOC,
 };
 
 U_BOOT_DRIVER(mtk_clk_topckgen) = {
@@ -326,7 +332,6 @@ U_BOOT_DRIVER(mtk_clk_topckgen) = {
 	.probe = mt6789_topckgen_probe,
 	.priv_auto = sizeof(struct mtk_clk_priv),
 	.ops = &mtk_clk_topckgen_ops,
-	.flags = DM_FLAG_PRE_RELOC,
 };
 
 U_BOOT_DRIVER(mtk_clk_infracfg) = {
@@ -336,5 +341,4 @@ U_BOOT_DRIVER(mtk_clk_infracfg) = {
 	.probe = mt6789_infracfg_ao_probe,
 	.priv_auto = sizeof(struct mtk_clk_priv),
 	.ops = &mtk_clk_gate_ops,
-	.flags = DM_FLAG_PRE_RELOC,
 };

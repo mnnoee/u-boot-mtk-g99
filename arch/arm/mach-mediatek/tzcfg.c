@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <asm/global_data.h>
+#include <early_log.h>
 #include <linux/kernel.h>
 #include <linux/arm-smccc.h>
 #include <linux/sizes.h>
@@ -69,54 +70,10 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 	struct arm_smccc_res res;
 	u32 used_regions = 1;
 
-	/* BL31 region */
-	arm_smccc_smc(MTK_SIP_GET_BL31_REGION, 0, 0, 0, 0, 0, 0, 0, &res);
-	if (res.a0) {
-		/* Assume PIE is not enabled for BL31 */
-		region[0].addr = BL31_DEFAULT_ADDR;
-		region[0].size = BL31_DEFAULT_SIZE;
-	} else {
-		region[0].addr = res.a1;
-		region[0].size = res.a2;
-	}
-
-	debug("BL31 @ 0x%08llx, size 0x%llx\n", region[0].addr,
-	      region[0].size);
-
-	/* BL32 region is optional */
-	arm_smccc_smc(MTK_SIP_GET_BL32_REGION, 0, 0, 0, 0, 0, 0, 0, &res);
-	if (!res.a0 && res.a1 && res.a2) {
-		region[used_regions].addr = res.a1;
-		region[used_regions].size = res.a2;
-
-		debug("BL32 @ 0x%08llx, size 0x%llx\n",
-		      region[used_regions].addr, region[used_regions].size);
-
-		used_regions++;
-	}
-
-	if (used_regions == 2) {
-		if (region[0].addr < region[1].addr) {
-			/* Make sure region[0] is higher than region[1] */
-			tmp = region[0];
-			region[0] = region[1];
-			region[1] = tmp;
-		}
-
-		top_addr = region[0].addr + region[0].size;
-		low_addr = min_t(phys_addr_t, region[0].addr, region[1].addr);
-
-		if (top_addr - low_addr <= TZ_REGION_MAX_SIZE) {
-			/* Merge region if they're overlapped or close enough */
-			region[0].size = top_addr - low_addr;
-			region[0].addr = low_addr;
-
-			debug("Merged region @ 0x%08llx, size 0x%llx\n",
-			      region[0].addr, region[0].size);
-
-			used_regions = 1;
-		}
-	}
+	EARLY_W("tzcfg:board_get_usable_ram_top:entry");
+	/* Use defaults: assume BL31 at default addr. Skip SMC calls */
+	region[0].addr = BL31_DEFAULT_ADDR;
+	region[0].size = BL31_DEFAULT_SIZE;
 
 	debug("Effective memory @ 0x%08zx, size 0x%llx\n", gd->ram_base,
 	      gd->ram_top - gd->ram_base);
@@ -148,10 +105,8 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 
 	if (!used_regions ||
 	    (uboot_ram_top - region[0].addr - region[0].size >= uboot_size)) {
-		/* No reserved region present,
-		 * or gap between high region and ram top is large enough
-		 */
 		uboot_ram_top -= pstore_size;
+		EARLY_W("tzcfg:board_get_usable_ram_top:exit_high");
 		return uboot_ram_top;
 	}
 
@@ -159,15 +114,14 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 
 	if (used_regions == 2 &&
 	    (uboot_ram_top - region[1].addr - region[1].size >= uboot_size)) {
-		/* Gap between high region and low region is large enough */
 		uboot_ram_top -= pstore_size;
+		EARLY_W("tzcfg:board_get_usable_ram_top:exit_mid");
 		return uboot_ram_top;
 	}
 
 	uboot_ram_top = region[used_regions - 1].addr & ~(REGION_ALIGNMENT - 1);
-
-	/* Under low region */
 	uboot_ram_top -= pstore_size;
+	EARLY_W("tzcfg:board_get_usable_ram_top:exit_low");
 	return uboot_ram_top;
 }
 

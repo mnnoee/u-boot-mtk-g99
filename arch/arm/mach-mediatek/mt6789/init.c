@@ -5,6 +5,7 @@
 #include <asm/system.h>
 #include <dm/uclass.h>
 #include <fdtdec.h>
+#include <early_log.h>
 #include <init.h>
 #include <linux/sizes.h>
 #include <wdt.h>
@@ -13,7 +14,11 @@ DECLARE_GLOBAL_DATA_PTR;
 
 int dram_init(void)
 {
-	return fdtdec_setup_mem_size_base();
+	int ret;
+	EARLY_W("mt6789:dram_init:entry");
+	ret = fdtdec_setup_mem_size_base();
+	EARLY_W("mt6789:dram_init:exit");
+	return ret;
 }
 
 int dram_init_banksize(void)
@@ -31,6 +36,7 @@ int dram_init_banksize(void)
 
 int mtk_soc_early_init(void)
 {
+	EARLY_W("mt6789:mtk_soc_early_init");
 	return 0;
 }
 

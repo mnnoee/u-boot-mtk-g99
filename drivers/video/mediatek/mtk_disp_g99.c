@@ -181,7 +181,7 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(0x0, MMSYS_DSI0_SEL_IN);	/* DSI0 input ← DITHER0 */
 
 	/* Шаг 4: конфигурация OVL0 Layer 0 */
-	writel(0x2,        OVL0_CON);		/* manual shadow reload mode */
+	writel(0x1, OVL0_CON);		/* bypass shadow mode (direct writes) */
 	writel(0x1,        OVL0_UPDATE);
 	writel(0x201e,     OVL0_CFG);
 	writel(0x05000001, OVL0_SRC_CON);
@@ -292,7 +292,7 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	writel(0x1, MMSYS_DITHER0_MOUT);
 	writel(0x0, MMSYS_DSI0_SEL_IN);
 
-	writel(0x2,        OVL0_CON);
+	writel(0x1,        OVL0_CON);
 	writel(0x1,        OVL0_UPDATE);
 	writel(0x201e,     OVL0_CFG);
 	writel(0x05000001, OVL0_SRC_CON);

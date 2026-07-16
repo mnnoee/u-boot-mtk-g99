@@ -20,6 +20,7 @@
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/printk.h>
+#include <early_log.h>
 
 /* MSDC_CFG */
 #define MSDC_CFG_HS400_CK_MODE_EXT	BIT(22)
@@ -1470,6 +1471,8 @@ static void msdc_init_hw(struct msdc_host *host)
 	void __iomem *rd_dly0_reg = &host->base->pad_tune0;
 	void __iomem *rd_dly1_reg = &host->base->pad_tune1;
 
+	EARLY_W("msdc:init_hw:entry");
+
 	if (host->dev_comp->pad_tune0) {
 		tune_reg = &host->base->pad_tune0;
 		rd_dly0_reg = &host->base->dat_rd_dly[0];
@@ -1477,6 +1480,7 @@ static void msdc_init_hw(struct msdc_host *host)
 	}
 
 	/* Configure to MMC/SD mode, clock free running */
+	EARLY_W("msdc:init_hw:before_msdc_cfg");
 	setbits_le32(&host->base->msdc_cfg, MSDC_CFG_MODE);
 
 	/* Use PIO mode */
@@ -1642,15 +1646,23 @@ static void msdc_init_hw(struct msdc_host *host)
 
 static void msdc_ungate_clock(struct msdc_host *host)
 {
+	EARLY_W("msdc:ungate:src_clk");
 	clk_enable(&host->src_clk);
+	EARLY_W("msdc:ungate:h_clk");
 	clk_enable(&host->h_clk);
-	if (host->src_clk_cg.dev)
+	if (host->src_clk_cg.dev) {
+		EARLY_W("msdc:ungate:src_cg");
 		clk_enable(&host->src_clk_cg);
-
-	if (host->axi_cg_clk.dev)
+	}
+	if (host->axi_cg_clk.dev) {
+		EARLY_W("msdc:ungate:axi_cg");
 		clk_enable(&host->axi_cg_clk);
-	if (host->ahb_cg_clk.dev)
+	}
+	if (host->ahb_cg_clk.dev) {
+		EARLY_W("msdc:ungate:ahb_cg");
 		clk_enable(&host->ahb_cg_clk);
+	}
+	EARLY_W("msdc:ungate:done");
 }
 
 static int msdc_drv_probe(struct udevice *dev)
@@ -1660,6 +1672,7 @@ static int msdc_drv_probe(struct udevice *dev)
 	struct msdc_host *host = dev_get_priv(dev);
 	struct mmc_config *cfg = &plat->cfg;
 
+	EARLY_W("msdc:probe:entry");
 	cfg->name = dev->name;
 
 	host->dev_comp = (struct msdc_compatible *)dev_get_driver_data(dev);
@@ -1667,6 +1680,7 @@ static int msdc_drv_probe(struct udevice *dev)
 	if (host->dev_comp->use_internal_cd)
 		host->builtin_cd = 1;
 
+	EARLY_W("msdc:probe:before_clk_get_rate");
 	host->src_clk_freq = clk_get_rate(&host->src_clk);
 
 	if (host->dev_comp->clk_div_bits == 8)
@@ -1687,12 +1701,16 @@ static int msdc_drv_probe(struct udevice *dev)
 	host->timeout_ns = 100000000;
 	host->timeout_clks = 3 * (1 << SCLK_CYCLES_SHIFT);
 
+	EARLY_W("msdc:probe:before_pinctrl");
 #ifdef CONFIG_PINCTRL
 	pinctrl_select_state(dev, "default");
 #endif
 
+	EARLY_W("msdc:probe:before_ungate");
 	msdc_ungate_clock(host);
+	EARLY_W("msdc:probe:before_init_hw");
 	msdc_init_hw(host);
+	EARLY_W("msdc:probe:after_init_hw");
 
 	upriv->mmc = &plat->mmc;
 
