@@ -182,6 +182,7 @@
 	sd-uhs-sdr104;
 	sd-uhs-ddr50;
 	no-mmc;
+	cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
 };
 
 &ufshci {
