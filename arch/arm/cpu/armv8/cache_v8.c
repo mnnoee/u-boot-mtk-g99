@@ -773,7 +773,7 @@ __weak void mmu_setup(void)
 
 	EARLY_W("mmu_setup:entry");
 	EARLY_WF("tlb_addr=0x%lx sz=0x%lx", gd->arch.tlb_addr, gd->arch.tlb_size);
-	EARLY_WF("ram_top=0x%lx reloc=0x%lx", gd->ram_top, gd->relocaddr);
+	EARLY_WF("ram_top=0x%lx reloc=0x%lx", (unsigned long)gd->ram_top, (unsigned long)gd->relocaddr);
 
 	/* Set up page tables only once */
 	if (!gd->arch.tlb_fillptr)
