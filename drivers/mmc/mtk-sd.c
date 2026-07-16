@@ -1648,19 +1648,11 @@ static void msdc_ungate_clock(struct msdc_host *host)
 {
 	EARLY_W("msdc:ungate:src_clk");
 	clk_enable(&host->src_clk);
-	EARLY_W("msdc:ungate:h_clk");
-	clk_enable(&host->h_clk);
+	/* Skip h_clk — infra_ao1 gate register bus-hang (protection not released) */
+	EARLY_W("msdc:ungate:h_clk_skip");
 	if (host->src_clk_cg.dev) {
 		EARLY_W("msdc:ungate:src_cg");
 		clk_enable(&host->src_clk_cg);
-	}
-	if (host->axi_cg_clk.dev) {
-		EARLY_W("msdc:ungate:axi_cg");
-		clk_enable(&host->axi_cg_clk);
-	}
-	if (host->ahb_cg_clk.dev) {
-		EARLY_W("msdc:ungate:ahb_cg");
-		clk_enable(&host->ahb_cg_clk);
 	}
 	EARLY_W("msdc:ungate:done");
 }
