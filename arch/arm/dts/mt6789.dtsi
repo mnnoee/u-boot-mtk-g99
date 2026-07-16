@@ -378,6 +378,24 @@
 			};
 		};
 
+		mmc1_vmmc: regulator-vmch {
+			compatible = "regulator-fixed";
+			regulator-name = "vmmc";
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-always-on;
+			regulator-boot-on;
+		};
+
+		mmc1_vqmmc: regulator-vmc {
+			compatible = "regulator-fixed";
+			regulator-name = "vqmmc";
+			regulator-min-microvolt = <1800000>;
+			regulator-max-microvolt = <3300000>;
+			regulator-always-on;
+			regulator-boot-on;
+		};
+
 		sdhc2: mmc@11240000 {
 			compatible = "mediatek,mt8183-mmc";
 			reg = <0x11240000 0x1000>,
@@ -392,8 +410,26 @@
 			ocr-voltage = <0x30000>;
 			cap-sd-highspeed;
 			cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+			vmmc-supply = <&mmc1_vmmc>;
+			vqmmc-supply = <&mmc1_vqmmc>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&mmc1_pins_default>;
 			no-mmc;
 			no-sdio;
+		};
+
+		mmc1_pins_default: mmc1-pins {
+			pins-cmd-dat {
+				pinmux = <0x4901 0x4a01 0x4b01 0x4c01 0x4801>;
+				input-enable;
+				drive-strength = <3>;
+				bias-pull-up;
+			};
+			pins-clk {
+				pinmux = <0x4701>;
+				drive-strength = <3>;
+				bias-pull-down;
+			};
 		};
 
 		ufshci: ufshci@11270000 {
