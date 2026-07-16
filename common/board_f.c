@@ -1065,6 +1065,8 @@ void board_init_f(ulong boot_flags)
 {
 	struct board_f boardf;
 
+	/* Reset early_log magic so each boot starts fresh (new idx=0) */
+	*(volatile u32 *)0x43FFF000 = 0;
 	EARLY_W("board_init_f:entry");
 	gd->flags = boot_flags;
 	gd->flags &= ~GD_FLG_HAVE_CONSOLE;
