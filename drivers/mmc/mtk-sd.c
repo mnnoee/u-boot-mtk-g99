@@ -1648,12 +1648,10 @@ static void msdc_ungate_clock(struct msdc_host *host)
 {
 	EARLY_W("msdc:ungate:src_clk");
 	clk_enable(&host->src_clk);
-	/* Skip h_clk — infra_ao1 gate register bus-hang (protection not released) */
-	EARLY_W("msdc:ungate:h_clk_skip");
-	if (host->src_clk_cg.dev) {
-		EARLY_W("msdc:ungate:src_cg");
-		clk_enable(&host->src_clk_cg);
-	}
+	/* Skip all infra_ao gate enables — bus protection not released,
+	 * writel to infra_ao1 clock gate register hangs the bus.
+	 * src_clk (topckgen mux) works fine. */
+	EARLY_W("msdc:ungate:skip_infra");
 	EARLY_W("msdc:ungate:done");
 }
 
