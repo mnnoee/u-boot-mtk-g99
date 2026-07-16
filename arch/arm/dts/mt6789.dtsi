@@ -2,6 +2,7 @@
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/phy/phy.h>
 #include <dt-bindings/reset/ti-syscon.h>
 #include <dt-bindings/clock/mediatek,mt6789-clk.h>
@@ -386,6 +387,13 @@
 				 <&infracfg_ao CLK_IFRAO_MSDC1_SRC>;
 			clock-names = "source", "hclk", "source_cg";
 			interrupts = <GIC_SPI 135 IRQ_TYPE_LEVEL_HIGH 0>;
+			bus-width = <4>;
+			max-frequency = <200000000>;
+			ocr-voltage = <0x30000>;
+			cap-sd-highspeed;
+			cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+			no-mmc;
+			no-sdio;
 		};
 
 		ufshci: ufshci@11270000 {
