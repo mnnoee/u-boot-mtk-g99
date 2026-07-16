@@ -676,12 +676,10 @@ static int mtk_clk_gate_enable(struct clk *clk)
 	int id = mtk_clk_get_id(clk);
 	const struct mtk_gate *gate;
 
-	EARLY_W("cg_en:entry");
 	if (id < priv->tree->gates_offs)
 		return -EINVAL;
 
 	gate = &priv->gates[id - priv->tree->gates_offs];
-	EARLY_W("cg_en:before_writel");
 	return mtk_gate_enable(priv->base, gate);
 }
 
