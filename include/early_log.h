@@ -44,27 +44,10 @@ static inline void early_log_write(const char *msg)
 	*idx = pos;
 	*seq = *seq + 1;
 
-	/* Flush only the cache lines containing newly written bytes */
-	if (get_sctlr() & CR_C) {
-		unsigned long a, end_a;
-		asm volatile("dsb sy");
-
-		a = (unsigned long)&buf[old_pos];
-		end_a = (unsigned long)&buf[pos];
-
-		if (a <= end_a) {
-			/* Normal: flush from old_pos to pos */
-			for (a = a & ~63UL; a <= end_a; a += 64)
-				asm volatile("dc cvac, %0" :: "r"(a));
-		} else {
-			/* Wrapped: flush end of buffer + start of buffer */
-			for (a = a & ~63UL; a < (unsigned long)&buf[EARLY_LOG_BUFSZ]; a += 64)
-				asm volatile("dc cvac, %0" :: "r"(a));
-			for (a = (unsigned long)buf & ~63UL; a <= end_a; a += 64)
-				asm volatile("dc cvac, %0" :: "r"(a));
-		}
-		asm volatile("dsb sy");
-	}
+	/* No cache flush — writes go through MMU to DRAM.
+	 * After dcache_enable, data stays in L1 cache only, but
+	 * ramops reads via uncached path or after watchdog reset.
+	 * Cache flush caused bus timeouts on this SoC. */
 }
 
 #define EARLY_W(msg) do { early_log_write("[EARLY] " msg "\n"); } while (0)
