@@ -409,7 +409,6 @@
 			max-frequency = <200000000>;
 			ocr-voltage = <0x30000>;
 			cap-sd-highspeed;
-			cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
 			vmmc-supply = <&mmc1_vmmc>;
 			vqmmc-supply = <&mmc1_vqmmc>;
 			pinctrl-names = "default";
