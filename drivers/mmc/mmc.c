@@ -27,6 +27,7 @@
 #include <linux/list.h>
 #include <linux/printk.h>
 #include <div64.h>
+#include <early_log.h>
 #include "mmc_private.h"
 
 #define DEFAULT_CMD6_TIMEOUT_MS  500
@@ -2891,9 +2892,13 @@ int mmc_get_op_cond(struct mmc *mmc, bool quiet)
 	bool uhs_en = supports_uhs(mmc->cfg->host_caps);
 	int err;
 
-	if (mmc->has_init)
+	EARLY_W("mmc:get_op_cond:entry");
+	if (mmc->has_init) {
+		EARLY_W("mmc:get_op_cond:already_init");
 		return 0;
+	}
 
+	EARLY_W("mmc:get_op_cond:power_init");
 	err = mmc_power_init(mmc);
 	if (err)
 		return err;
@@ -2904,6 +2909,7 @@ int mmc_get_op_cond(struct mmc *mmc, bool quiet)
 		      MMC_QUIRK_RETRY_APP_CMD;
 #endif
 
+	EARLY_W("mmc:get_op_cond:power_cycle");
 	err = mmc_power_cycle(mmc);
 	if (err) {
 		/*
@@ -2924,7 +2930,9 @@ int mmc_get_op_cond(struct mmc *mmc, bool quiet)
 	 * Re-initialization is needed to clear old configuration for
 	 * mmc rescan.
 	 */
+	EARLY_W("mmc:get_op_cond:reinit");
 	err = mmc_reinit(mmc);
+	EARLY_W("mmc:get_op_cond:reinit_done");
 #else
 	/* made sure it's not NULL earlier */
 	err = mmc->cfg->ops->init(mmc);
@@ -2934,11 +2942,13 @@ int mmc_get_op_cond(struct mmc *mmc, bool quiet)
 	mmc->ddr_mode = 0;
 
 retry:
+	EARLY_W("mmc:get_op_cond:retry");
 	mmc_set_initial_state(mmc);
 
 	mmc_send_init_stream(mmc);
 
 	/* Reset the Card */
+	EARLY_W("mmc:get_op_cond:go_idle");
 	err = mmc_go_idle(mmc);
 
 	if (err)
@@ -2948,10 +2958,14 @@ retry:
 	mmc_get_blk_desc(mmc)->hwpart = 0;
 
 	/* Test for SD version 2 */
+	EARLY_W("mmc:get_op_cond:send_if_cond");
 	err = mmc_send_if_cond(mmc);
+	EARLY_W("mmc:get_op_cond:if_cond_done");
 
 	/* Now try to get the SD card's operating condition */
+	EARLY_W("mmc:get_op_cond:sd_op_cond");
 	err = sd_send_op_cond(mmc, uhs_en);
+	EARLY_W("mmc:get_op_cond:sd_op_cond_done");
 	if (err && uhs_en) {
 		uhs_en = false;
 		mmc_power_cycle(mmc);
@@ -2960,10 +2974,13 @@ retry:
 
 	/* If the command timed out, we check for an MMC card */
 	if (err == -ETIMEDOUT) {
+		EARLY_W("mmc:get_op_cond:mmc_fallback");
 		err = mmc_send_op_cond(mmc);
+		EARLY_W("mmc:get_op_cond:mmc_fallback_done");
 
 		if (err) {
 #if !defined(CONFIG_XPL_BUILD) || defined(CONFIG_SPL_LIBCOMMON_SUPPORT)
+			EARLY_W("mmc:get_op_cond:all_failed");
 			if (!quiet)
 				log_err("Card did not respond to voltage select! : %d\n",
 					err);
