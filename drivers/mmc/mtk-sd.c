@@ -1696,6 +1696,25 @@ static int msdc_drv_probe(struct udevice *dev)
 	pinctrl_select_state(dev, "default");
 #endif
 
+	/*
+	 * Configure MSDC1 pins (GPIO 71-76) for SD card slot.
+	 * Pin mode registers: 8 pins per 32-bit register (4 bits/pin).
+	 * Function 1 = MSDC1 alternate function.
+	 */
+	if (host->dev_comp->use_internal_cd == 0) {
+		/* GPIO 71 (CLK): 0x10005380 [31:28] = 1 */
+		u32 val = readl(0x10005380);
+		val &= ~(0xF << 28);
+		val |= (0x1 << 28);
+		writel(val, 0x10005380);
+
+		/* GPIO 72-76 (CMD, DAT0-3): 0x10005390 [3:0]-[19:16] = 1 */
+		val = readl(0x10005390);
+		val &= ~(0xFFFF);
+		val |= 0x11111;
+		writel(val, 0x10005390);
+	}
+
 	EARLY_W("msdc:probe:before_ungate");
 	msdc_ungate_clock(host);
 	EARLY_W("msdc:probe:before_init_hw");

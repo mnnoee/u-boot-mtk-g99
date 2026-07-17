@@ -242,7 +242,9 @@ int mmc_send_cmd(struct mmc *mmc, struct mmc_cmd *cmd, struct mmc_data *data)
 	int ret;
 
 	mmmc_trace_before_send(mmc, cmd);
+	EARLY_W("mmc:cmd:start");
 	ret = mmc->cfg->ops->send_cmd(mmc, cmd, data);
+	EARLY_W("mmc:cmd:done");
 	mmmc_trace_after_send(mmc, cmd, ret);
 
 	return ret;
