@@ -1698,21 +1698,49 @@ static int msdc_drv_probe(struct udevice *dev)
 
 	/*
 	 * Configure MSDC1 pins (GPIO 71-76) for SD card slot.
-	 * Pin mode registers: 8 pins per 32-bit register (4 bits/pin).
+	 * Mode registers: 8 pins per 32-bit register (4 bits/pin).
 	 * Function 1 = MSDC1 alternate function.
+	 * Bank: iocfg_rt (0x11EA0000) for IES/SMT/PUPD/DRV.
 	 */
 	if (host->dev_comp->use_internal_cd == 0) {
-		/* GPIO 71 (CLK): 0x10005380 [31:28] = 1 */
-		u32 val = readl(0x10005380);
+		u32 val;
+
+		/* Mode: GPIO 71 (CLK) = function 1 */
+		val = readl(0x10005380);
 		val &= ~(0xF << 28);
-		val |= (0x1 << 28);
+		val |= (1 << 28);
 		writel(val, 0x10005380);
 
-		/* GPIO 72-76 (CMD, DAT0-3): 0x10005390 [3:0]-[19:16] = 1 */
+		/* Mode: GPIO 72-76 (CMD, DAT0-3) = function 1 */
 		val = readl(0x10005390);
-		val &= ~(0xFFFF);
+		val &= ~0xFFFF;
 		val |= 0x11111;
 		writel(val, 0x10005390);
+
+		/* IES: enable input for GPIO 71-76 (bits 1-6) */
+		val = readl(0x11EA0080);
+		val |= 0x7E;
+		writel(val, 0x11EA0080);
+
+		/* SMT: enable SMT for GPIO 71-76 (bits 16-21) */
+		val = readl(0x11EA0140);
+		val |= 0x3F0000;
+		writel(val, 0x11EA0140);
+
+		/* PUPD: pull-up 24K for GPIO 71-76 (bits 0-5) */
+		val = readl(0x11EA00B0);
+		val |= 0x3F;
+		writel(val, 0x11EA00B0);
+
+		/* R0: set R0 for GPIO 71-76 (bits 0-5) */
+		val = readl(0x11EA00E0);
+		val |= 0x3F;
+		writel(val, 0x11EA00E0);
+
+		/* R1: clear R1 for GPIO 71-76 (bits 0-5) */
+		val = readl(0x11EA00F0);
+		val &= ~0x3F;
+		writel(val, 0x11EA00F0);
 	}
 
 	EARLY_W("msdc:probe:before_ungate");
