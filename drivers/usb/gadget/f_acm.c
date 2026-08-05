@@ -670,7 +670,7 @@ static int acm_stdio_stop(struct stdio_dev *dev)
 
 int drv_usbacm_init(void)
 {
-	struct stdio_dev stdio;
+	struct stdio_dev stdio = {0};
 
 	strcpy(stdio.name, "usbacm");
 	stdio.flags = DEV_FLAGS_INPUT | DEV_FLAGS_OUTPUT;
