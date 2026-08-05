@@ -8,6 +8,20 @@
  * framebuffer, then triggers frame updates via DSI DCS Write Memory
  * Start (0x2C).
  *
+ * v187: restored from v183 — this driver DID show logo+text on real
+ * hardware, unlike v184/v185/v186 which showed nothing. Changes vs v183
+ * (verified by manual experiments 2026-08-05):
+ *   - OVL0 SRC_CON (+0x02c) = 0x3 — enable Layer 0 + Layer 1 (LK left
+ *     only 0x2 = L1, driver configures L0).
+ *   - OVL0 L0_CON (+0x030) = 0x000001ff (was 0x1001020) — ARGB8888 +
+ *     alpha enable. The manual session reached full red/green screens
+ *     with exactly this value.
+ *   - video_sync() throttled to SYNC_MIN_MS (16 ms) so vidconsole
+ *     refreshes don't spam the DSI.
+ *   - DSI trigger unchanged (CMDQ_SIZE 0x8001 + DSI_START toggle) — it
+ *     worked in v183; the "reset + CMDQ_SIZE 0x0001 + CON_CTRL DSI_EN"
+ *     sequence works only from the shell and broke the driver.
+ *
  * ALL register writes in mtk_disp_pipeline_init() were empirically
  * verified via U-Boot shell commands on real hardware (Infinix X676B,
  * MT6789).  No register write that was not part of the verified
@@ -19,6 +33,7 @@
 #include <video_console.h>
 #include <asm/io.h>
 #include <asm/cache.h>
+#include <time.h>
 
 /* ── Hardware register bases ─────────────────────────────────────────── */
 
@@ -48,7 +63,8 @@
 #define OVL0_CFG		(OVL0_BASE + 0x004)
 #define OVL0_CON		(OVL0_BASE + 0x008)
 #define OVL0_UPDATE		(OVL0_BASE + 0x00c)	/* shadow reload trigger */
-#define OVL0_SRC_CON		(OVL0_BASE + 0x024)
+#define OVL0_DATAPATH_CON	(OVL0_BASE + 0x024)
+#define OVL0_SRC_CON		(OVL0_BASE + 0x02c)	/* layer enable */
 #define OVL0_L0_CON		(OVL0_BASE + 0x0c0)
 #define OVL0_L0_CFG		(OVL0_BASE + 0x030)
 #define OVL0_L0_PITCH		(OVL0_BASE + 0x034)
@@ -102,6 +118,9 @@
 /* OVL_EN bit 22 = shadow reload trigger */
 #define OVL_SHADOW_RELOAD		0x00400001
 
+/* Minimum interval between frame pushes (16 ms ≈ 60 fps) */
+#define SYNC_MIN_MS		16
+
 /* Default framebuffer address as set by LK */
 #define LK_DEFAULT_FB		0xfeabe000UL
 
@@ -129,6 +148,8 @@
  * Читать: md.l 0xff4a1400 10
  */
 #define DIAG_ADDR		(LK_DEFAULT_FB + DISP_FB_SIZE)	/* 0xff4a1400 */
+
+static ulong last_sync_ms;
 
 /* ── MMIO accessibility check ────────────────────────────────────────── */
 
@@ -184,9 +205,10 @@ static void mtk_disp_pipeline_init(ulong fb_phys)
 	writel(0x1, OVL0_CON);		/* bypass shadow mode (direct writes) */
 	writel(0x1,        OVL0_UPDATE);
 	writel(0x201e,     OVL0_CFG);
-	writel(0x05000001, OVL0_SRC_CON);
+	writel(0x05000001, OVL0_DATAPATH_CON);
+	writel(0x3,        OVL0_SRC_CON);	/* enable L0 + L1 */
 	writel(0x1,        OVL0_L0_CON);
-	writel(0x1001020,  OVL0_L0_CFG);
+	writel(0x000001ff, OVL0_L0_CFG);
 	writel(DISP_STRIDE, OVL0_L0_PITCH);
 	writel(0x09600438, OVL0_L0_SRC_SIZE);
 	writel(0x0,        OVL0_L0_OFFSET);
@@ -269,12 +291,19 @@ static int mtk_disp_video_sync(struct udevice *dev)
 
 	struct video_priv *uc_priv = dev_get_uclass_priv(dev);
 	ulong fb_phys;
+	ulong now;
 
 	if (!uc_priv || !uc_priv->fb || !uc_priv->fb_size) {
 		writel(0x1, DIAG_ADDR + 0x54);
 		flush_dcache_range(DIAG_ADDR + 0x50, DIAG_ADDR + 0x58);
 		return 0;
 	}
+
+	/* Throttle: не чаще 1 кадра в 16 мс (защита от спама vidconsole) */
+	now = get_timer(0);
+	if (last_sync_ms && now - last_sync_ms < SYNC_MIN_MS)
+		return 0;
+	last_sync_ms = now;
 
 	fb_phys = (ulong)uc_priv->fb;
 	flush_dcache_range(fb_phys, fb_phys + uc_priv->fb_size);
@@ -295,9 +324,10 @@ static int mtk_disp_video_sync(struct udevice *dev)
 	writel(0x1,        OVL0_CON);
 	writel(0x1,        OVL0_UPDATE);
 	writel(0x201e,     OVL0_CFG);
-	writel(0x05000001, OVL0_SRC_CON);
+	writel(0x05000001, OVL0_DATAPATH_CON);
+	writel(0x3,        OVL0_SRC_CON);	/* enable L0 + L1 */
 	writel(0x1,        OVL0_L0_CON);
-	writel(0x1001020,  OVL0_L0_CFG);
+	writel(0x000001ff, OVL0_L0_CFG);
 	writel(DISP_STRIDE, OVL0_L0_PITCH);
 	writel(0x09600438, OVL0_L0_SRC_SIZE);
 	writel(0x0,        OVL0_L0_OFFSET);
