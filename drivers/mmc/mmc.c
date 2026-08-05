@@ -686,14 +686,27 @@ static int sd_send_op_cond(struct mmc *mmc, bool uhs_en)
 
 		err = mmc_send_cmd(mmc, &cmd, NULL);
 
-		if (err)
+		if (err) {
+			EARLY_W("mmc:acmd41:send_err");
 			return err;
+		}
 
+		if (timeout == 500 || timeout == 0) {
+			/* Dump first and last ACMD41 response */
+			if (cmd.response[0] & OCR_BUSY)
+				EARLY_W("mmc:acmd41:busy");
+			else
+				EARLY_W("mmc:acmd41:no_busy");
+		}
 		if (cmd.response[0] & OCR_BUSY)
 			break;
 
-		if (timeout-- <= 0)
+		if (timeout-- <= 0) {
+			EARLY_W("mmc:acmd41:timeout");
 			return -EOPNOTSUPP;
+		}
+
+		udelay(1000);
 
 		udelay(1000);
 	}
@@ -2952,9 +2965,11 @@ retry:
 	/* Reset the Card */
 	EARLY_W("mmc:get_op_cond:go_idle");
 	err = mmc_go_idle(mmc);
-
-	if (err)
+	if (err) {
+		EARLY_W("mmc:get_op_cond:go_idle_err");
 		return err;
+	}
+	EARLY_W("mmc:get_op_cond:go_ok");
 
 	/* The internal partition reset to user partition(0) at every CMD0 */
 	mmc_get_blk_desc(mmc)->hwpart = 0;
@@ -2967,6 +2982,10 @@ retry:
 	/* Now try to get the SD card's operating condition */
 	EARLY_W("mmc:get_op_cond:sd_op_cond");
 	err = sd_send_op_cond(mmc, uhs_en);
+	if (err) {
+		EARLY_W("mmc:get_op_cond:sd_err");
+		EARLY_W("mmc:get_op_cond:sd_e2");
+	}
 	EARLY_W("mmc:get_op_cond:sd_op_cond_done");
 	if (err && uhs_en) {
 		uhs_en = false;

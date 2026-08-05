@@ -1644,14 +1644,68 @@ static void msdc_init_hw(struct msdc_host *host)
 	host->def_tune_para.pad_tune = readl(&host->base->pad_tune);
 }
 
+static void msdc_release_bus_protection(void)
+{
+	/* Release INFRA bus protection for flash domain (from BL2_ext) */
+	writel(0x18000000, 0x1000108C);  /* SET flash domain access */
+	EARLY_W("msdc:bus_prot:released");
+}
+
+static void msdc_enable_f26m_crystal(void)
+{
+	u32 val;
+
+	/* Read current SPM CK_PDN_CON (0x10006398) */
+	val = readl(0x10006398);
+	EARLY_W("msdc:f26m:spm_pdn_con");
+
+	/* Deassert SW reset for MD domain (clear bits [1:0]) */
+	if (val & 0x03) {
+		writel(val & ~0x03, 0x10006398);
+		EARLY_W("msdc:f26m:spm_reset_deassert");
+	}
+
+	/* Check SPM power control (0x10006300) */
+	val = readl(0x10006300);
+	/* Set bits [2,0] for power on sequence */
+	if ((val & 0x05) != 0x05) {
+		writel(val | 0x05, 0x10006300);
+		EARLY_W("msdc:f26m:spm_power_on");
+	}
+
+	/* Wait for power status (bit 0 of 0x1000616c) */
+	{
+		int timeout = 100000;
+		while (timeout-- > 0) {
+			if (readl(0x1000616c) & 0x01)
+				break;
+		}
+	}
+	EARLY_W("msdc:f26m:spm_power_ready");
+}
+
+static void msdc_enable_infra_clocks(void)
+{
+	/* Enable CLK_IFRAO_MSDC1 (hclk) - bit 4 in infra_ao1 */
+	/* infra_ao1: set=0x88, clr=0x8C, gates are active-low: write CLR to enable */
+	writel(BIT(4) | BIT(16), 0x1000108C);  /* CLR register */
+	EARLY_W("msdc:infra_clks:enabled");
+}
+
 static void msdc_ungate_clock(struct msdc_host *host)
 {
+	EARLY_W("msdc:ungate:release_bus_prot");
+	msdc_release_bus_protection();
+
+	EARLY_W("msdc:ungate:spm_crystal");
+	msdc_enable_f26m_crystal();
+
 	EARLY_W("msdc:ungate:src_clk");
 	clk_enable(&host->src_clk);
-	/* Skip all infra_ao gate enables — bus protection not released,
-	 * writel to infra_ao1 clock gate register hangs the bus.
-	 * src_clk (topckgen mux) works fine. */
-	EARLY_W("msdc:ungate:skip_infra");
+
+	EARLY_W("msdc:ungate:infra_clks");
+	msdc_enable_infra_clocks();
+
 	EARLY_W("msdc:ungate:done");
 }
 

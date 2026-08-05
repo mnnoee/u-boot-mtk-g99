@@ -176,13 +176,13 @@
 	bus-width = <4>;
 	max-frequency = <200000000>;
 	cap-sd-highspeed;
-	sd-uhs-sdr12;
+/*	sd-uhs-sdr12;
 	sd-uhs-sdr25;
 	sd-uhs-sdr50;
 	sd-uhs-sdr104;
-	sd-uhs-ddr50;
+	sd-uhs-ddr50; */
 	no-mmc;
-	cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
+	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
 };
 
 &ufshci {
