@@ -10,6 +10,7 @@
 #define MT6789_INTEGER_BITS	8
 #define PLL_AO	BIT(1)
 
+
 #define PLL(_id, _reg, _pwr_reg, _en_mask, _flags, _rst_bar_mask, \
 	    _pcwbits, _pcwibits, _pd_reg, _pd_shift, _pcw_reg, _pcw_shift) { \
 	.id = _id, \
@@ -162,7 +163,21 @@ static const int disp_parents[] = {
 static const struct mtk_composite top_muxes[] = {
 	MUX_GATE(CLK_TOP_AXI_SEL, axi_parents, 0x18, 0, 3, 7),
 	MUX_GATE(CLK_TOP_SPM_SEL, spm_parents, 0x18, 8, 2, 15),
-	MUX_GATE(CLK_TOP_MSDC30_1_SEL, msdc30_1_parents, 0x88, 8, 3, 15),
+	{
+		.id = CLK_TOP_MSDC30_1_SEL,
+		.mux_reg = 0x80,
+		.mux_set_reg = 0x84,
+		.mux_clr_reg = 0x88,
+		.upd_reg = 0x04,
+		.upd_shift = 29,
+		.mux_shift = 8,
+		.mux_mask = 0x7,
+		.gate_reg = 0x80,
+		.gate_shift = 15,
+		.parent = msdc30_1_parents,
+		.num_parents = ARRAY_SIZE(msdc30_1_parents),
+		.flags = CLK_MUX_SETCLR_UPD,
+	},
 	MUX_GATE(CLK_TOP_UART_SEL, uart_parents, 0x78, 8, 1, 15),
 	MUX_GATE(CLK_TOP_DISP_SEL, disp_parents, 0x28, 0, 4, 7),
 };
