@@ -136,3 +136,7 @@ __pycache__
 
 # Clang's compilation database file
 /compile_commands.json
+
+# Local backups and tooling artifacts
+*.bak
+/graphify-out/
