@@ -415,6 +415,7 @@
 			pinctrl-0 = <&mmc1_pins_default>;
 			no-mmc;
 			no-sdio;
+			builtin-cd = <0>;
 		};
 
 		mmc1_pins_default: mmc1-pins {

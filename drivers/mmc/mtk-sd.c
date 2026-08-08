@@ -362,6 +362,8 @@ struct msdc_host {
 	struct msdc_top_regs *top_base;
 	struct mmc *mmc;
 
+	fdt_addr_t phys_base;	/* physical address for device matching */
+
 	struct msdc_compatible *dev_comp;
 
 	struct clk src_clk;	/* for SD/MMC bus clock */
@@ -410,21 +412,32 @@ struct msdc_host {
 static void msdc_reset_hw(struct msdc_host *host)
 {
 	u32 reg;
+	int ret;
 
+	EARLY_WF("msdc:reset_hw:enter cfg=0x%x", readl(&host->base->msdc_cfg));
 	setbits_le32(&host->base->msdc_cfg, MSDC_CFG_RST);
 
-	readl_poll_timeout(&host->base->msdc_cfg, reg,
+	ret = readl_poll_timeout(&host->base->msdc_cfg, reg,
 			   !(reg & MSDC_CFG_RST), 1000000);
+
+	EARLY_WF("msdc:reset_hw:exit ret=%d cfg=0x%x", ret,
+		 readl(&host->base->msdc_cfg));
 }
 
 static void msdc_fifo_clr(struct msdc_host *host)
 {
 	u32 reg;
+	int ret;
 
+	EARLY_WF("msdc:fifo_clr:enter fifocs=0x%x",
+		 readl(&host->base->msdc_fifocs));
 	setbits_le32(&host->base->msdc_fifocs, MSDC_FIFOCS_CLR);
 
-	readl_poll_timeout(&host->base->msdc_fifocs, reg,
+	ret = readl_poll_timeout(&host->base->msdc_fifocs, reg,
 			   !(reg & MSDC_FIFOCS_CLR), 1000000);
+
+	EARLY_WF("msdc:fifo_clr:exit ret=%d fifocs=0x%x", ret,
+		 readl(&host->base->msdc_fifocs));
 }
 
 static u32 msdc_fifo_rx_bytes(struct msdc_host *host)
@@ -548,6 +561,11 @@ static int msdc_cmd_done(struct msdc_host *host, int events,
 			ret = -EIO;
 	}
 
+	EARLY_WF("msdc:cmd_done:CMD%d ret=%d events=0x%x r0=0x%x r1=0x%x",
+		 cmd->cmdidx, ret, events,
+		 cmd->resp_type & MMC_RSP_PRESENT ? readl(&host->base->sdc_resp[0]) : 0,
+		 cmd->resp_type & MMC_RSP_PRESENT ? readl(&host->base->sdc_resp[1]) : 0);
+
 	return ret;
 }
 
@@ -588,6 +606,12 @@ static int msdc_start_command(struct msdc_host *host, struct mmc_cmd *cmd,
 	u32 blocks = 0;
 	int ret;
 
+	EARLY_WF("msdc:start_cmd:CMD%d arg=0x%x resp=0x%x", cmd->cmdidx,
+		 cmd->cmdarg, cmd->resp_type);
+	EARLY_WF("msdc:start_cmd:sts=0x%x ps=0x%x cfg=0x%x",
+		 readl(&host->base->sdc_sts), readl(&host->base->msdc_ps),
+		 readl(&host->base->msdc_cfg));
+
 	if (!msdc_cmd_is_ready(host))
 		return -EIO;
 
@@ -613,6 +637,7 @@ static int msdc_start_command(struct msdc_host *host, struct mmc_cmd *cmd,
 	writel(DATA_INTS_MASK, &host->base->msdc_int);
 	writel(blocks, &host->base->sdc_blk_num);
 	writel(cmd->cmdarg, &host->base->sdc_arg);
+	EARLY_WF("msdc:start_cmd:rawcmd=0x%x blk=%u", rawcmd, blocks);
 	writel(rawcmd, &host->base->sdc_cmd);
 
 	ret = readl_poll_timeout(&host->base->msdc_int, status,
@@ -620,6 +645,10 @@ static int msdc_start_command(struct msdc_host *host, struct mmc_cmd *cmd,
 
 	if (ret)
 		status = MSDC_INT_CMDTMO;
+
+	EARLY_WF("msdc:start_cmd:done ret=%d status=0x%x int=0x%x sts=0x%x",
+		 ret, status, readl(&host->base->msdc_int),
+		 readl(&host->base->sdc_sts));
 
 	return msdc_cmd_done(host, status, cmd);
 }
@@ -757,6 +786,9 @@ static int msdc_start_data(struct msdc_host *host, struct mmc_data *data)
 	u32 size;
 	int ret;
 
+	EARLY_WF("msdc:start_data:blocks=%u bsize=%u flags=0x%x",
+		 data->blocks, data->blocksize, data->flags);
+
 	if (data->flags == MMC_DATA_WRITE)
 		host->last_data_write = 1;
 
@@ -766,6 +798,10 @@ static int msdc_start_data(struct msdc_host *host, struct mmc_data *data)
 		ret = msdc_pio_write(host, (const u8 *)data->src, size);
 	else
 		ret = msdc_pio_read(host, (u8 *)data->dest, size);
+
+	EARLY_WF("msdc:start_data:done ret=%d int=0x%x fifocs=0x%x", ret,
+		 readl(&host->base->msdc_int),
+		 readl(&host->base->msdc_fifocs));
 
 	if (ret) {
 		msdc_reset_hw(host);
@@ -781,12 +817,16 @@ static int msdc_ops_send_cmd(struct udevice *dev, struct mmc_cmd *cmd,
 	struct msdc_host *host = dev_get_priv(dev);
 	int cmd_ret, data_ret;
 
+	EARLY_WF("msdc_send_cmd: CMD%d arg=0x%x", cmd->cmdidx, cmd->cmdarg);
+
 	cmd_ret = msdc_start_command(host, cmd, data);
 	if (cmd_ret &&
 	    !(cmd_ret == -EIO &&
 	    (cmd->cmdidx == MMC_CMD_SEND_TUNING_BLOCK ||
-	    cmd->cmdidx == MMC_CMD_SEND_TUNING_BLOCK_HS200)))
+	    cmd->cmdidx == MMC_CMD_SEND_TUNING_BLOCK_HS200))) {
+		EARLY_WF("msdc_send_cmd: CMD%d failed ret=%d", cmd->cmdidx, cmd_ret);
 		return cmd_ret;
+	}
 
 	if (data) {
 		data_ret = msdc_start_data(host, data);
@@ -860,9 +900,12 @@ static void msdc_set_mclk(struct udevice *dev,
 	u32 sclk;
 	u32 reg;
 
+	EARLY_WF("msdc_set_mclk: hz=%u timing=%d src_clk=%u", hz, timing, host->src_clk_freq);
+
 	if (!hz) {
 		host->mclk = 0;
 		clrbits_le32(&host->base->msdc_cfg, MSDC_CFG_CKPDN);
+		EARLY_W("msdc_set_mclk: clock disabled");
 		return;
 	}
 
@@ -941,6 +984,9 @@ static void msdc_set_mclk(struct udevice *dev,
 	host->mclk = hz;
 	host->timing = timing;
 
+	EARLY_WF("msdc:set_mclk:done hz=%u mode=%u div=%u sclk=%u cfg=0x%x",
+		 hz, mode, div, sclk, readl(&host->base->msdc_cfg));
+
 	/* needed because clk changed. */
 	msdc_set_timeout(host, host->timeout_ns, host->timeout_clks);
 
@@ -968,6 +1014,9 @@ static int msdc_ops_set_ios(struct udevice *dev)
 	struct mmc *mmc = &plat->mmc;
 	uint clock = mmc->clock;
 
+	EARLY_WF("msdc:set_ios:clock=%u bw=%u disable=%d", clock,
+		 mmc->bus_width, mmc->clk_disable);
+
 	msdc_set_buswidth(host, mmc->bus_width);
 
 	if (mmc->clk_disable)
@@ -985,6 +1034,9 @@ static int msdc_ops_get_cd(struct udevice *dev)
 {
 	struct msdc_host *host = dev_get_priv(dev);
 	u32 val;
+
+	EARLY_WF("msdc:get_cd:builtin=%d ps=0x%x", host->builtin_cd,
+		 readl(&host->base->msdc_ps));
 
 	if (host->builtin_cd) {
 		val = readl(&host->base->msdc_ps);
@@ -1505,11 +1557,27 @@ static void msdc_init_hw(struct msdc_host *host)
 	/* Enable data & cmd interrupts */
 	writel(DATA_INTS_MASK | CMD_INTS_MASK, &host->base->msdc_inten);
 
-	if (host->top_base) {
-		writel(0, &host->top_base->emmc_top_control);
-		writel(0, &host->top_base->emmc_top_cmd);
+	/* MT6789 MSDC1: Use working PAD_TUNE values from LK */
+	if (host->phys_base == 0x11240000) {
+		if (host->top_base) {
+			writel(0, &host->top_base->emmc_top_control);
+			writel(0, &host->top_base->emmc_top_cmd);
+		}
+		/* Write to pad_tune0 directly (not tune_reg which may be remapped) */
+		EARLY_WF("msdc:pad_tune0:before=0x%x", readl(&host->base->pad_tune0));
+		writel(0x403c0007, &host->base->pad_tune0);
+		EARLY_WF("msdc:pad_tune0:after=0x%x", readl(&host->base->pad_tune0));
+		EARLY_WF("msdc:pad_tune1:before=0x%x", readl(&host->base->pad_tune1));
+		writel(0xffe64309, &host->base->pad_tune1);
+		EARLY_WF("msdc:pad_tune1:after=0x%x", readl(&host->base->pad_tune1));
+		EARLY_W("msdc:init_hw:mt6789_pad_tune");
 	} else {
-		writel(0, tune_reg);
+		if (host->top_base) {
+			writel(0, &host->top_base->emmc_top_control);
+			writel(0, &host->top_base->emmc_top_cmd);
+		} else {
+			writel(0, tune_reg);
+		}
 	}
 	writel(0, &host->base->msdc_iocon);
 
@@ -1688,23 +1756,37 @@ static void msdc_enable_infra_clocks(void)
 {
 	/* Enable CLK_IFRAO_MSDC1 (hclk) - bit 4 in infra_ao1 */
 	/* infra_ao1: set=0x88, clr=0x8C, gates are active-low: write CLR to enable */
+	EARLY_WF("msdc:infra_clks:before sta=0x%x (set=0x88 clr=0x8c)",
+		 readl(0x10001094));
 	writel(BIT(4) | BIT(16), 0x1000108C);  /* CLR register */
+	EARLY_WF("msdc:infra_clks:after sta=0x%x", readl(0x10001094));
 	EARLY_W("msdc:infra_clks:enabled");
 }
 
 static void msdc_ungate_clock(struct msdc_host *host)
 {
+	EARLY_WF("msdc:ungate:0 ifrao1=0x%x cfg4=0x%x pllcon=0x%x pllpwr=0x%x",
+		 readl(0x10001094), readl(0x10000080),
+		 readl(0x1000C350), readl(0x1000C35C));
 	EARLY_W("msdc:ungate:release_bus_prot");
 	msdc_release_bus_protection();
+	EARLY_WF("msdc:ungate:1 ifrao1=0x%x", readl(0x10001094));
 
 	EARLY_W("msdc:ungate:spm_crystal");
 	msdc_enable_f26m_crystal();
+	EARLY_WF("msdc:ungate:2 ifrao1=0x%x spm=0x%x", readl(0x10001094),
+		 readl(0x1000616c));
 
 	EARLY_W("msdc:ungate:src_clk");
 	clk_enable(&host->src_clk);
+	EARLY_WF("msdc:ungate:3 ifrao1=0x%x cfg4=0x%x", readl(0x10001094),
+		 readl(0x10000080));
 
 	EARLY_W("msdc:ungate:infra_clks");
 	msdc_enable_infra_clocks();
+	EARLY_WF("msdc:ungate:4 ifrao1=0x%x cfg4=0x%x pllcon=0x%x pllpwr=0x%x",
+		 readl(0x10001094), readl(0x10000080),
+		 readl(0x1000C350), readl(0x1000C35C));
 
 	EARLY_W("msdc:ungate:done");
 }
@@ -1727,16 +1809,42 @@ static int msdc_drv_probe(struct udevice *dev)
 	EARLY_W("msdc:probe:before_clk_get_rate");
 	host->src_clk_freq = clk_get_rate(&host->src_clk);
 
+	/*
+	 * MT6789 MSDC1 workaround: MSDCPLL is disabled by LK (CON2[0]=0),
+	 * but mux msdc30_1_sel still selects msdcpll_d2 (index 4). In bypass
+	 * mode, the actual source clock is tck_26m_mx9_ck (26 MHz), not the
+	 * MSDCPLL rate reported by DT.
+	 *
+	 * Force src_clk_freq to 26 MHz for MSDC1 (base 0x11240000).
+	 * MSDC0 (eMMC at 0x11230000) is not affected.
+	 *
+	 * Root cause: CLK_CFG_7 (0x10000080) = 0x01000401
+	 *   bits [10:8] = 4 (msdcpll_d2)
+	 *   but MSDCPLL CON2 (0x1000C35C) bit 0 = 0 (PLL off)
+	 * See: docs/AGENTS/mt6789_msdc1_live_diagnostics_2026-08-06.md
+	 */
+	EARLY_WF("msdc:base=0x%lx src_clk=%u", (uintptr_t)host->phys_base, (unsigned int)host->src_clk_freq);
+	if (host->phys_base == 0x11240000) {
+		host->src_clk_freq = 26000000;
+		EARLY_W("msdc1:forced_26mhz");
+	}
+
 	if (host->dev_comp->clk_div_bits == 8)
 		cfg->f_min = host->src_clk_freq / (4 * 255);
 	else
 		cfg->f_min = host->src_clk_freq / (4 * 4095);
+
+	/* MT6789 MSDC1: Use 400 kHz for SD card init (standard) */
+	if (host->phys_base == 0x11240000 && cfg->f_min < 400000)
+		cfg->f_min = 400000;
 
 	if (cfg->f_min < MIN_BUS_CLK)
 		cfg->f_min = MIN_BUS_CLK;
 
 	if (cfg->f_max < cfg->f_min || cfg->f_max > host->src_clk_freq)
 		cfg->f_max = host->src_clk_freq;
+
+	EARLY_WF("msdc:f_min=%u f_max=%u", cfg->f_min, cfg->f_max);
 
 	cfg->b_max = CONFIG_SYS_MMC_MAX_BLK_COUNT;
 	cfg->voltages = MMC_VDD_32_33 | MMC_VDD_33_34;
@@ -1799,9 +1907,17 @@ static int msdc_drv_probe(struct udevice *dev)
 
 	EARLY_W("msdc:probe:before_ungate");
 	msdc_ungate_clock(host);
+	EARLY_WF("msdc:probe:after_ungate ifrao1=0x%x cfg4=0x%x pllcon=0x%x",
+		 readl(0x10001094), readl(0x10000080), readl(0x1000C350));
+	EARLY_WF("msdc:probe:after_ungate msdc_cfg=0x%x ps=0x%x int=0x%x",
+		 readl(0x11240000), readl(0x11240008), readl(0x11240010));
 	EARLY_W("msdc:probe:before_init_hw");
 	msdc_init_hw(host);
 	EARLY_W("msdc:probe:after_init_hw");
+	EARLY_WF("msdc:probe:after_init msdc_cfg=0x%x ps=0x%x int=0x%x",
+		 readl(0x11240000), readl(0x11240008), readl(0x11240010));
+	EARLY_WF("msdc:probe:after_init sdc_cfg=0x%x fifocs=0x%x sts=0x%x",
+		 readl(0x11240030), readl(0x11240028), readl(0x11240024));
 
 	upriv->mmc = &plat->mmc;
 
@@ -1819,6 +1935,7 @@ static int msdc_of_to_plat(struct udevice *dev)
 	base = dev_read_addr(dev);
 	if (base == FDT_ADDR_T_NONE)
 		return -EINVAL;
+	host->phys_base = base;
 	host->base = map_sysmem(base, 0);
 
 	top_base = dev_read_addr_index(dev, 1);

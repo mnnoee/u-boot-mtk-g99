@@ -62,4 +62,11 @@ static inline void early_log_write(const char *msg)
 
 #define EARLY_W(msg) do { early_log_write("[EARLY] " msg "\n"); } while (0)
 
+/* Formatted version of EARLY_W */
+#define EARLY_WF(fmt, ...) do { \
+	char _buf[256]; \
+	snprintf(_buf, sizeof(_buf), "[EARLY] " fmt "\n", ##__VA_ARGS__); \
+	early_log_write(_buf); \
+} while (0)
+
 #endif
