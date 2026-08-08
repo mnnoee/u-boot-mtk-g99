@@ -17,6 +17,7 @@
 #include <dm/device_compat.h>
 #include <dm/pinctrl.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/printk.h>
@@ -1791,6 +1792,68 @@ static void msdc_ungate_clock(struct msdc_host *host)
 	EARLY_W("msdc:ungate:done");
 }
 
+#define PWRAP_IFRAO0_SET	0x10001080
+#define PWRAP_IFRAO0_STA	0x10001090
+#define PWRAP_INIT_DONE2	0x10026000
+#define PWRAP_WACS2_CMD		0x10026880
+#define PWRAP_WACS2_WDATA	0x10026884
+#define PWRAP_SWINF_2_RDATA	0x10026894
+#define PWRAP_WACS2_VLDCLR	0x100268A4
+#define PWRAP_WACS2_RDATA	0x100268A8
+#define PWRAP_WACS2_WRITE	(1 << 29)
+
+#define PMIC_VMCH_VOLT		0x1E48
+#define PMIC_VMC_VOLT		0x1E4C
+#define PMIC_VMCH_EN		0x1CD8
+#define PMIC_VMC_EN		0x1CC4
+
+static u16 mtk_pwrap_read16(u16 addr)
+{
+	u32 val;
+
+	writel(addr, PWRAP_WACS2_CMD);
+	udelay(200);
+	val = readl(PWRAP_SWINF_2_RDATA);
+	writel(1, PWRAP_WACS2_VLDCLR);
+	return val & 0xffff;
+}
+
+static void mtk_pwrap_write16(u16 addr, u16 val)
+{
+	writel(val, PWRAP_WACS2_WDATA);
+	writel(PWRAP_WACS2_WRITE | addr, PWRAP_WACS2_CMD);
+	udelay(200);
+}
+
+static void msdc_pwrap_sd_power(struct msdc_host *host)
+{
+	u32 rb;
+
+	/* Enable pwrap SPI clocks (IFRAO0 pmic_tmr/pmic_ap) — mandatory */
+	writel(3, PWRAP_IFRAO0_SET);
+	EARLY_WF("pwrap:ifrao0_sta=0x%x init_done2=0x%x wacs2=0x%x",
+		 readl(PWRAP_IFRAO0_STA), readl(PWRAP_INIT_DONE2),
+		 readl(PWRAP_WACS2_RDATA));
+
+	/* PMIC SD rails: 2.9V VDD + 1.8V signaling — exact Android values (android_live_dump_2026-08-08) */
+	mtk_pwrap_write16(PMIC_VMCH_VOLT, 0x0200); /* 2.9V [10:8]=2 */
+	mtk_pwrap_write16(PMIC_VMC_VOLT, 0x0400);  /* 1.8V [11:8]=4 (vqmmc constraint 1800-1950mV) */
+	mtk_pwrap_write16(PMIC_VMCH_EN, 0x0001);
+	mtk_pwrap_write16(PMIC_VMC_EN, 0x0001);
+
+	/* Readback: first read returns previous transaction (shift-by-1) */
+	rb = mtk_pwrap_read16(PMIC_VMC_EN);
+	rb = mtk_pwrap_read16(PMIC_VMC_EN);
+	EARLY_WF("pwrap:sd_power vmc_en=0x%x", rb);
+	rb = mtk_pwrap_read16(PMIC_VMCH_EN);
+	rb = mtk_pwrap_read16(PMIC_VMCH_EN);
+	EARLY_WF("pwrap:sd_power vmch_en=0x%x", rb);
+	rb = mtk_pwrap_read16(PMIC_VMCH_VOLT);
+	rb = mtk_pwrap_read16(PMIC_VMCH_VOLT);
+	EARLY_WF("pwrap:sd_power vmch_volt=0x%x", rb);
+	EARLY_WF("msdc:after_pwr ps=0x%x", readl(0x11240008));
+}
+
 static int msdc_drv_probe(struct udevice *dev)
 {
 	struct mmc_uclass_priv *upriv = dev_get_uclass_priv(dev);
@@ -1810,23 +1873,18 @@ static int msdc_drv_probe(struct udevice *dev)
 	host->src_clk_freq = clk_get_rate(&host->src_clk);
 
 	/*
-	 * MT6789 MSDC1 workaround: MSDCPLL is disabled by LK (CON2[0]=0),
-	 * but mux msdc30_1_sel still selects msdcpll_d2 (index 4). In bypass
-	 * mode, the actual source clock is tck_26m_mx9_ck (26 MHz), not the
-	 * MSDCPLL rate reported by DT.
-	 *
-	 * Force src_clk_freq to 26 MHz for MSDC1 (base 0x11240000).
+	 * MT6789 MSDC1 workaround: LK leaves MSDCPLL powered ON
+	 * (CON0=0x3E1, CON3=0x80000001) and mux msdc30_1_sel = msdcpll_d2 (index 4).
+	 * Real source = msdcpll/2 = 384/2 = 192 MHz (verified identical in Android
+	 * via regmap: 350=000003e1 354=031d89d8 358=001d89d8 35c=80000001).
+	 * Force src_clk_freq to 192 MHz for MSDC1 (base 0x11240000).
 	 * MSDC0 (eMMC at 0x11230000) is not affected.
-	 *
-	 * Root cause: CLK_CFG_7 (0x10000080) = 0x01000401
-	 *   bits [10:8] = 4 (msdcpll_d2)
-	 *   but MSDCPLL CON2 (0x1000C35C) bit 0 = 0 (PLL off)
-	 * See: docs/AGENTS/mt6789_msdc1_live_diagnostics_2026-08-06.md
+	 * See: docs/AGENTS/mt6789_msdc1_android_live_state_2026-08-08.md
 	 */
 	EARLY_WF("msdc:base=0x%lx src_clk=%u", (uintptr_t)host->phys_base, (unsigned int)host->src_clk_freq);
 	if (host->phys_base == 0x11240000) {
-		host->src_clk_freq = 26000000;
-		EARLY_W("msdc1:forced_26mhz");
+		host->src_clk_freq = 192000000;
+		EARLY_W("msdc1:forced_192mhz");
 	}
 
 	if (host->dev_comp->clk_div_bits == 8)
@@ -1911,6 +1969,10 @@ static int msdc_drv_probe(struct udevice *dev)
 		 readl(0x10001094), readl(0x10000080), readl(0x1000C350));
 	EARLY_WF("msdc:probe:after_ungate msdc_cfg=0x%x ps=0x%x int=0x%x",
 		 readl(0x11240000), readl(0x11240008), readl(0x11240010));
+	if (host->phys_base == 0x11240000) {
+		EARLY_W("msdc:probe:pwrap_sd_power");
+		msdc_pwrap_sd_power(host);
+	}
 	EARLY_W("msdc:probe:before_init_hw");
 	msdc_init_hw(host);
 	EARLY_W("msdc:probe:after_init_hw");
