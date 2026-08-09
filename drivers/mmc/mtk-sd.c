@@ -1539,6 +1539,32 @@ static void msdc_init_hw(struct msdc_host *host)
 	/* Use PIO mode */
 	setbits_le32(&host->base->msdc_cfg, MSDC_CFG_PIO);
 
+	/*
+	 * MT6789 MSDC1: reproduce stock LK controller init sequence 1:1
+	 * (lk.img.c FUN_ffff000050f216c8, lines 32625-32709):
+	 *   SDC_ARG=0, SDC_CMD=0x1000
+	 *   EMMC_CFG0(0x70): |=0x2000, |=2; wait EMMC_STS(0x78) bit4=1;
+	 *   EMMC_CFG0 &= ~0x8000; read EMMC_STS
+	 *   DAT_RDDLY0-3 (0xf8..0x104) = 0
+	 * See: docs/AGENTS/lk_msdc1_sd_analysis_2026-08-09.md
+	 */
+	if (host->phys_base == 0x11240000) {
+		u32 sts;
+		writel(0, &host->base->sdc_arg);
+		writel(0x1000, &host->base->sdc_cmd);
+		setbits_le32(&host->base->emmc_cfg0, 0x2000);
+		setbits_le32(&host->base->emmc_cfg0, 2);
+		readl_poll_timeout(&host->base->emmc_sts, sts,
+				   (sts >> 4) & 1, 100000);
+		clrbits_le32(&host->base->emmc_cfg0, 0x8000);
+		sts = readl(&host->base->emmc_sts);
+		EARLY_WF("msdc:lk_emmc_proc sts=0x%x", sts);
+		writel(0, &host->base->dat_rd_dly[0]);
+		writel(0, &host->base->dat_rd_dly[1]);
+		writel(0, &host->base->dat_rd_dly[2]);
+		writel(0, &host->base->dat_rd_dly[3]);
+	}
+
 	/* Reset */
 	msdc_reset_hw(host);
 
@@ -1558,20 +1584,21 @@ static void msdc_init_hw(struct msdc_host *host)
 	/* Enable data & cmd interrupts */
 	writel(DATA_INTS_MASK | CMD_INTS_MASK, &host->base->msdc_inten);
 
-	/* MT6789 MSDC1: Use working PAD_TUNE values from LK */
+	/* MT6789 MSDC1: zero PAD_TUNE like stock LK (0xf0/0xf4 = 0).
+	 * NOTE: previous hack wrote LK PATCH_BIT values (0x403c0007/0xffe64309)
+	 * into PAD_TUNE0/1 - that was wrong (LK/Android write 0 there). */
 	if (host->phys_base == 0x11240000) {
 		if (host->top_base) {
 			writel(0, &host->top_base->emmc_top_control);
 			writel(0, &host->top_base->emmc_top_cmd);
 		}
-		/* Write to pad_tune0 directly (not tune_reg which may be remapped) */
 		EARLY_WF("msdc:pad_tune0:before=0x%x", readl(&host->base->pad_tune0));
-		writel(0x403c0007, &host->base->pad_tune0);
+		writel(0, &host->base->pad_tune0);
 		EARLY_WF("msdc:pad_tune0:after=0x%x", readl(&host->base->pad_tune0));
 		EARLY_WF("msdc:pad_tune1:before=0x%x", readl(&host->base->pad_tune1));
-		writel(0xffe64309, &host->base->pad_tune1);
+		writel(0, &host->base->pad_tune1);
 		EARLY_WF("msdc:pad_tune1:after=0x%x", readl(&host->base->pad_tune1));
-		EARLY_W("msdc:init_hw:mt6789_pad_tune");
+		EARLY_W("msdc:init_hw:mt6789_pad_tune_zero");
 	} else {
 		if (host->top_base) {
 			writel(0, &host->top_base->emmc_top_control);
@@ -1708,6 +1735,32 @@ static void msdc_init_hw(struct msdc_host *host)
 	/* Configure to default data timeout */
 	clrsetbits_le32(&host->base->sdc_cfg, SDC_CFG_DTOC_M,
 			3 << SDC_CFG_DTOC_S);
+
+	/*
+	 * MT6789 MSDC1: final register values 1:1 with Android LIVE state
+	 * (live dump 2026-08-09: mmc0 = 11240000.mmc, SD working, DDR50/1.8V).
+	 *   PATCH_BIT0/1/2 = 0x403c0007 / 0xfffe4340 / 0x3488180f
+	 *   ADV_CFG0(0x64) = 0x3808c169, EMMC51_CFG0(0x204) = 0x2d000000
+	 *   TOP_CONTROL = 0xa000 (ENH_EN|PAD_DAT_RD_RXDLY_SEL), TOP_CMD = 0x800
+	 * Overrides intermediate mt8183-style modifications for MSDC1.
+	 * See: docs/AGENTS/mt6789_msdc1_android_live_dump_2026-08-09.md
+	 */
+	if (host->phys_base == 0x11240000) {
+		writel(0x403c0007, &host->base->patch_bit0);
+		writel(0xfffe4340, &host->base->patch_bit1);
+		writel(0x3488180f, &host->base->patch_bit2);
+		writel(0x3808c169, &host->base->sdc_adv_cfg0);
+		writel(0x2d000000, (void __iomem *)((void *)host->base + 0x204));
+		if (host->top_base) {
+			writel(0xa000, &host->top_base->emmc_top_control);
+			writel(0x800, &host->top_base->emmc_top_cmd);
+		}
+		EARLY_WF("msdc:android_live pb0=0x%x pb1=0x%x pb2=0x%x adv0=0x%x",
+			 readl(&host->base->patch_bit0),
+			 readl(&host->base->patch_bit1),
+			 readl(&host->base->patch_bit2),
+			 readl(&host->base->sdc_adv_cfg0));
+	}
 
 	host->def_tune_para.iocon = readl(&host->base->msdc_iocon);
 	host->def_tune_para.pad_tune = readl(&host->base->pad_tune);
@@ -1892,12 +1945,16 @@ static int msdc_drv_probe(struct udevice *dev)
 	else
 		cfg->f_min = host->src_clk_freq / (4 * 4095);
 
-	/* MT6789 MSDC1: Use 400 kHz for SD card init (standard) */
-	if (host->phys_base == 0x11240000 && cfg->f_min < 400000)
-		cfg->f_min = 400000;
-
 	if (cfg->f_min < MIN_BUS_CLK)
 		cfg->f_min = MIN_BUS_CLK;
+
+	/* MT6789 MSDC1: Use 100 kHz for SD card init like stock LK
+	 * (FUN_ffff000050f207f0(param_9, 0, 100000) in lk_lk.bin.c).
+	 * 400 kHz fails with RSPCRCERR (INT=0x480) since v191.
+	 * Must be applied AFTER MIN_BUS_CLK check.
+	 * See: docs/AGENTS/lk_msdc1_sd_analysis_2026-08-09.md */
+	if (host->phys_base == 0x11240000 && cfg->f_min > 100000)
+		cfg->f_min = 100000;
 
 	if (cfg->f_max < cfg->f_min || cfg->f_max > host->src_clk_freq)
 		cfg->f_max = host->src_clk_freq;
@@ -1947,20 +2004,30 @@ static int msdc_drv_probe(struct udevice *dev)
 		val |= 0x3F0000;
 		writel(val, 0x11EA0140);
 
-		/* PUPD: pull-up 24K for GPIO 71-76 (bits 0-5) */
+		/* PUPD: CLK(bit0)=pull-down, CMD/DAT(bit1-5)=pull-up (vendor 0x3E) */
 		val = readl(0x11EA00B0);
-		val |= 0x3F;
+		val &= ~0x3F;
+		val |= 0x3E;
 		writel(val, 0x11EA00B0);
 
-		/* R0: set R0 for GPIO 71-76 (bits 0-5) */
+		/* R0: CLK=0 (no 24K pull), CMD/DAT=1 (24K pull) (vendor 0x3E) */
 		val = readl(0x11EA00E0);
-		val |= 0x3F;
+		val &= ~0x3F;
+		val |= 0x3E;
 		writel(val, 0x11EA00E0);
 
-		/* R1: clear R1 for GPIO 71-76 (bits 0-5) */
+		/* R1: CLK=1 (4K pull), CMD/DAT=0 (vendor 0x01) */
 		val = readl(0x11EA00F0);
 		val &= ~0x3F;
+		val |= 0x01;
 		writel(val, 0x11EA00F0);
+
+		/* DRV: all fields GPIO71-76 = 3 (vendor 0x036DB600) */
+		writel(0x036DB600, 0x11EA0030);
+
+		EARLY_WF("msdc:pinctrl:vendor pupd=0x%x r0=0x%x r1=0x%x drv=0x%x",
+			 readl(0x11EA00B0), readl(0x11EA00E0), readl(0x11EA00F0),
+			 readl(0x11EA0030));
 	}
 
 	EARLY_W("msdc:probe:before_ungate");
