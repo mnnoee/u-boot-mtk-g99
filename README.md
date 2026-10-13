@@ -18,6 +18,7 @@ The project is **not finished**. Below is an honest status: what works, what doe
 | 🖥 **USB ACM (serial по USB)** | консоль U-Boot через USB CDC ACM, отдельный UART-кабель не нужен | U-Boot console over USB CDC ACM, no UART cable required |
 | 💾 **UMS / fastboot block по UFS** | Mass storage через `scsi`, диск телефона виден на ПК | Mass storage via `scsi`, phone storage visible on PC |
 | 📺 **Дисплей (текст)** | текст U-Boot рисуется на AMOLED через свой драйвер `mtk_disp_g99.c` | U-Boot text renders on AMOLED via custom `mtk_disp_g99.c` driver |
+| 🔘 **Кнопки** | Volume Up / Down работают, свой драйвер `button-mtk-kp.c`, управляют bootmenu | Volume Up / Down work, custom `button-mtk-kp.c` driver drives the bootmenu |
 | ⏻ **Poweroff** | команда `poweroff` в меню загрузки | `poweroff` command in the boot menu |
 | 🔁 **A/B разделы** | прошивка в `lk_a` и `lk_b`, откат возможен | flash to `lk_a` / `lk_b`, rollback supported |
 
@@ -27,7 +28,6 @@ The project is **not finished**. Below is an honest status: what works, what doe
 |---|---|---|
 | 💳 **SD-карта (SDC)** | контроллер MSDC1 (`0x11240000`) не инициализируется, карта не определяется. **На этом работа остановлена.** | MSDC1 controller (`0x11240000`) fails to initialise, card not detected. **Work stopped here.** |
 | 🤖 **Загрузка Android** | ядро стартует и паникует: `Attempted to kill init!` — не тот DTB | kernel starts then panics: `Attempted to kill init!` — wrong DTB |
-| 🔘 **Кнопки (ADC)** | ввод с кнопок в меню U-Boot не работает | button input in the U-Boot menu does not work |
 
 ---
 
@@ -142,7 +142,10 @@ fastboot reboot
 | `configs/mt6789_infinix_x676b_defconfig` | конфигурация сборки / build configuration |
 | `arch/arm/dts/mt6789-infinix-x676b.dts` | device tree устройства / device tree |
 | `drivers/video/mediatek/mtk_disp_g99.c` | драйвер дисплея (текст на AMOLED) / display driver |
+| `drivers/button/button-mtk-kp.c` | драйвер кнопок Volume Up / Down (самописный) / button driver |
 | `drivers/mmc/mtk-sd.c` | MSDC-контроллер, здесь идёт работа над SD-картой / MSDC controller, where SD-card work is happening |
+| `drivers/clk/mediatek/clk-mt6789.c` | часы MT6789, переписан под реальные гейты / clocks, rewritten |
+| `include/early_log.h` | буфер раннего лога в DRAM / early log buffer |
 | `board/mediatek/mtk-phone.env` | окружение U-Boot / U-Boot environment |
 | `arch/arm/mach-mediatek/mt6789/init.c` | инициализация платы / board init |
 | `gimme-uboot.py` | упаковка в LK / LK packing helper |

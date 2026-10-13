@@ -30,6 +30,7 @@ docs/
 ├── hardware/
 │   ├── display.md             ← AMOLED, OVL0→RDMA0→DSI0, панель ILI7835F
 │   ├── usb.md                 ← USB 2.0 MUSB, fastboot / ACM / UMS
+│   ├── buttons.md             ← Volume Up/Down, самописный драйвер KP
 │   ├── sd-card-msdc1.md       ← SD-карта: что сломано и куда копать (текущий блокер)
 │   └── memory-map.md          ← карта памяти и периферии MT6789
 ├── decisions/                 ← ADR: контекст → решение → последствия

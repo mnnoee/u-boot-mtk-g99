@@ -27,6 +27,7 @@ Real strings were taken from the live device: `/sys/firmware/fdt` on running And
 | **USB 2.0** / USB2 | `mediatek,mt6789-usb20` | `mediatek,mt8518-musb`<br>+ `mediatek,mtk-musb` | `drivers/usb/musb-new/mt85xx.c` | ⚠️ `musb-new` биндится **только** на `mt8518-musb` (`mt85xx.c:432`). Драйвера под `mt6789-usb20` в форке нет — это другое семейство. Ядро MUSB совпадает, отличается обвязка PHY |
 | **USB PHY** / T-PHY | `mt6789-tphy` | `mediatek,mt6789-tphy`<br>+ `generic-tphy-v2` | `drivers/phy/mediatek/` | ✅ В формковом `mt6789.dtsi` был `generic-tphy-v2` с `reg = <0 0x11f40000>` и `#address-cells = <2>`. Исправлено: `ranges = <0 0 0x11f40000 0x1000>`, `#address-cells = <1>` — иначе PHY не зондируется |
 | **Дисплей** / Display | — | `mediatek,mt6789-disp` | `drivers/video/mediatek/mtk_disp_g99.c`<br>**собственный** | ✅ В форке нет DRM-драйвера для MT6789.LK/BL2_EXT уже поднимает DSI и панель, наш драйвер перенастраивает конвейер OVL0→RDMA0→DITHER0→DSI0 под framebuffer U-Boot. Подробно: [`hardware/display.md`](hardware/display.md) |
+| **Кнопки** / Buttons | `mediatek,mt6779-keypad` | `mediatek,mt6779-keypad` | `drivers/button/button-mtk-kp.c`<br>**собственный** | ✅ Драйвера KP в форке не было — только `button-adc`, `button-gpio`, `button-qcom-pmic`, ни один не подходит к матричной клавиатуре MTK. Написан на основе Linux `mt6779-keypad.c`. Подробно: [`hardware/buttons.md`](hardware/buttons.md) |
 | **Сторожевой таймер** / WDT | `mediatek,mt6789-wdt` | не описан в DTS | — | ⏸ Узел `wdt@` отсутствует и в формковом `mt6789.dtsi`. В U-Boot WDT не используется, поэтому не трогали |
 
 ---
@@ -99,10 +100,10 @@ Real strings were taken from the live device: `/sys/firmware/fdt` on running And
 | USB ACM (serial по USB) | ✅ работает | [`hardware/usb.md`](hardware/usb.md) |
 | UMS (mass storage) | ✅ работает через `scsi` | [`hardware/usb.md`](hardware/usb.md) |
 | Дисплей (текст) | ✅ работает | [`hardware/display.md`](hardware/display.md) |
+| Кнопки (Volume Up/Down) | ✅ работают, самописный драйвер | [`hardware/buttons.md`](hardware/buttons.md) |
 | UFS (внутренняя память) | ✅ работает | этот документ, §1 |
 | SD-карта | ❌ не работает — **блокер** | [`hardware/sd-card-msdc1.md`](hardware/sd-card-msdc1.md) |
 | Загрузка Android | ❌ паника `Attempted to kill init` | не тот DTB, работы не начаты |
-| Кнопки (ADC) | ❌ не работают | нет `adc-keys` в DTS |
 
 ---
 
