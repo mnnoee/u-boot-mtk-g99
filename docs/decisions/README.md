@@ -50,3 +50,7 @@ consequences → what was tried and rejected.
 - Таблица соответствий: [`../compatibility.md`](../compatibility.md)
 - Описание железа: [`../hardware/`](../hardware/)
 - Полный журнал коммитов: `git log --oneline` в корне репозитория
+
+Compatibility matrix: [`../compatibility.md`](../compatibility.md)
+Hardware description: [`../hardware/`](../hardware/)
+Full commit log: `git log --oneline` at the repository root
