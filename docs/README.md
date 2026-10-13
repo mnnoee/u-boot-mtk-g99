@@ -1,10 +1,10 @@
 # Документация проекта / Project documentation
 
-Здесь лежит всё, что **не помещается в код**, но без чего нельзя понять, почему код
-выглядит именно так.
+Пояснения к коду: что за железо, почему именно такие драйверы и совместимые строки,
+откуда взяты значения регистров.
 
-Everything that does not fit in the code itself, but is required to understand *why* the
-code looks the way it does.
+Explanations to the code: what hardware it is, why these particular drivers and
+compatibility strings, and where the register values came from.
 
 ---
 

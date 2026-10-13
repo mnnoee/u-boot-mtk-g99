@@ -176,13 +176,13 @@ they differ.
 | [`docs/decisions/`](docs/decisions/) | ADR: почему решения именно такие / why decisions were made |
 | [`docs/reverse-engineering/`](docs/reverse-engineering/) | как получены адреса и значения / how values were obtained |
 
-> **Совет для тех, кто продолжает работу:** начинайте с
-> [`sd-card-msdc1.md`](docs/hardware/sd-card-msdc1.md) — там перечислены все
-> уже сделанные эксперименты, чтобы их не пришлось повторять.
+> SD-карта — единственное, что не работает. Начните с
+> [`sd-card-msdc1.md`](docs/hardware/sd-card-msdc1.md): там все уже сделанные
+> эксперименты и вывод из них.
 >
-> **Tip for anyone picking this up:** start with
+> The SD card is the only thing left broken. Start with
 > [`sd-card-msdc1.md`](docs/hardware/sd-card-msdc1.md) — it lists every experiment
-> already performed, so they do not have to be repeated.
+> already done and what came out of it.
 
 ---
 

@@ -3,10 +3,10 @@
 **Статус: ❌ не работает. Это текущий блокер проекта.**
 **Status: ❌ not working. This is the project's current blocker.**
 
-Документ написан так, чтобы следующий человек (или следующая сессия) **не повторял**
-уже сделанные эксперименты и сразу продолжил с последнего вывода.
-Written so that the next person (or session) does **not** repeat the experiments already
-done, and continues from the last conclusion.
+Ниже — все уже сделанные эксперименты, чтобы не пришлось повторять их заново.
+Актуальное состояние в конце документа.
+Below is the full list of experiments already done, so they need not be repeated.
+The current state is at the end of the document.
 
 ---
 

@@ -101,13 +101,11 @@ the keypad controller cannot be read:
 | IFRAO4 | `0x10001000` | `+0xe0` / `+0xe4` / `+0xe8` |
 | IFRAO5 | `0x10001000` | `+0xd0` / `+0xd4` / `+0xd8` |
 
-> 💡 Гейты включаются через **SET**, а не CLR. В SD-драйвере наоборот —
-> обход зависания шины `infra_ao` пришлось делать через CLR. Разные регионы
-> ведут себя по-разному, см. [`sd-card-msdc1.md`](sd-card-msdc1.md).
+> Гейты включаются через **SET**, а не CLR. В SD-драйвере наоборот — обход
+> зависания шины `infra_ao` пришлось делать через CLR.
 >
-> 💡 Gates are enabled via **SET**, not CLR. In the SD driver it is the opposite —
-> working around the `infra_ao` bus hang required CLR. Different registers behave
-> differently.
+> Gates are enabled via **SET**, not CLR. In the SD driver it is the opposite —
+> working around the `infra_ao` bus hang required CLR.
 
 ---
 

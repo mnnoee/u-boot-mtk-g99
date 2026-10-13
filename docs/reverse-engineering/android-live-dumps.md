@@ -6,11 +6,9 @@
 **Source:** a phone running the **stock LK and Android 12**, where the SD card
 and the display work correctly.
 
-**Это главный источник правды в проекте.** Там, где дамп Android расходится
-с предположением, прав Android.
+Если дамп расходится с предположением — прав дамп: Android работает.
 
-**This is the project's primary source of truth.** Where a live dump disagrees with
-an assumption, the dump wins.
+Where a live dump disagrees with an assumption, the dump wins: Android works.
 
 ---
 
