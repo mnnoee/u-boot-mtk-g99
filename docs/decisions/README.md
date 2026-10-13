@@ -10,12 +10,13 @@ consequences → what was tried and rejected.
 
 ## Список / Index
 
-| # | Решение / Decision | Статус | Файл / File |
+| # | Решение / Decision | Статус / Status | Файл / File |
 |---|---|---|---|
 | 0001 | Собственный драйвер дисплея вместо DRM<br>Custom display driver instead of DRM | принято / accepted | [0001](0001-custom-display-driver.md) |
 | 0002 | USB только в режиме PIO, без DMA<br>USB PIO-only, no DMA | принято / accepted | [0002](0002-usb-pio-only.md) |
 | 0003 | MMC1 на совместимости `mt8183-mmc`<br>MMC1 bound to `mt8183-mmc` | принято / accepted | [0003](0003-mmc-on-mt8183-compat.md) |
 | 0004 | Ранний лог в кольцевой буфер памяти<br>Early log into an in-memory ring buffer | принято / accepted | [0004](0004-early-log-ring-buffer.md) |
+| 0005 | Переписан драйвер часов MT6789<br>MT6789 clock driver rewritten | принято / accepted | [0005](0005-rewrite-mt6789-clock-driver.md) |
 
 ---
 

@@ -22,10 +22,12 @@ and the disassembled LK. **There is no MT6789 datasheet.**
 | **MUSB** (USB 2.0) | `0x11200000` | `usb0@11200000` | `musb-new/mt85xx.c` |
 | **UFS** | `0x11270000` | `ufshci@11270000` | `ufs/ufs-mediatek.c` |
 | **T-PHY** (USB) | `0x11f40000` | `t-phy@11f40000` | `drivers/phy/mediatek/` |
+| **KP** (кнопки) | `0x10010000` | узлы `volume-up` / `volume-down` | `drivers/button/button-mtk-kp.c` |
 | **UART0** | `0x11002000` | `serial@11002000` | стандартный |
 | **SPM** (питание) | `0x10006000` | — | — |
-| **INFRACFG** (гейты) | `0x10001000` | — | `clk-mt6789-mm.c` |
-| **TOPCKGEN** (мультиплексоры часов) | `0x10000000` | — | — |
+| **APMIXEDSYS** (PLL) | `0x1000c000` | `syscon@1000c000` | `drivers/clk/mediatek/clk-mt6789.c` |
+| **TOPCKGEN** (мультиплексоры часов) | `0x10000000` | `syscon@10000000` | там же |
+| **INFRACFG_AO** (гейты) | `0x10001000` | `syscon@10001000` | там же |
 
 ---
 
