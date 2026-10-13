@@ -176,7 +176,7 @@
 	bus-width = <4>;
 	max-frequency = <200000000>;
 	cap-sd-highspeed;
-	r_smpl = <1>;	/* RSPL: sample card response on rising edge */
+	r_smpl = <0>;	/* TEST v219: RSPL=0 like Android (live IOCON=0) */
 /*	sd-uhs-sdr12;
 	sd-uhs-sdr25;
 	sd-uhs-sdr50;

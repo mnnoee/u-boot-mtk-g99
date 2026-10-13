@@ -7,6 +7,7 @@
  */
 
 #include <clk.h>
+#include <command.h>
 #include <dm.h>
 #include <mmc.h>
 #include <errno.h>
@@ -640,6 +641,22 @@ static int msdc_start_command(struct msdc_host *host, struct mmc_cmd *cmd,
 	writel(cmd->cmdarg, &host->base->sdc_arg);
 	EARLY_WF("msdc:start_cmd:rawcmd=0x%x blk=%u", rawcmd, blocks);
 	writel(rawcmd, &host->base->sdc_cmd);
+
+	/* TEST v217: sample PS/INT/STS inside the response window of CMD8
+	 * (100 kHz, response window ~ hundreds of us; 50us spacing covers it).
+	 * Question: does CMD line (PS bit24) ever go 1, i.e. does the
+	 * controller release CMD for the card's response? */
+	if (host->phys_base == 0x11240000 && cmd->cmdidx == 8) {
+		int i;
+		for (i = 0; i < 8; i++) {
+			udelay(50);
+			EARLY_WF("msdc:cmd8_poll[%d] ps=0x%x int=0x%x sts=0x%x cfg=0x%x",
+				 i, readl(&host->base->msdc_ps),
+				 readl(&host->base->msdc_int),
+				 readl(&host->base->sdc_sts),
+				 readl(&host->base->msdc_cfg));
+		}
+	}
 
 	ret = readl_poll_timeout(&host->base->msdc_int, status,
 				 status & CMD_INTS_MASK, 1000000);
@@ -1540,25 +1557,12 @@ static void msdc_init_hw(struct msdc_host *host)
 	setbits_le32(&host->base->msdc_cfg, MSDC_CFG_PIO);
 
 	/*
-	 * MT6789 MSDC1: reproduce stock LK controller init sequence 1:1
-	 * (lk.img.c FUN_ffff000050f216c8, lines 32625-32709):
-	 *   SDC_ARG=0, SDC_CMD=0x1000
-	 *   EMMC_CFG0(0x70): |=0x2000, |=2; wait EMMC_STS(0x78) bit4=1;
-	 *   EMMC_CFG0 &= ~0x8000; read EMMC_STS
-	 *   DAT_RDDLY0-3 (0xf8..0x104) = 0
-	 * See: docs/AGENTS/lk_msdc1_sd_analysis_2026-08-09.md
+	 * MT6789 MSDC1: TEST v215 - LK eMMC boot-stop handshake DISABLED
+	 * (EMMC_CFG0(0x70) |=0x2000/|=2, wait EMMC_STS bit4, ~0x8000).
+	 * Suspect: eMMC-boot-specific, no vendor-kernel analogue for SD,
+	 * may hold CMD/DAT pads low in MSDC1 mode. Only dat_rd_dly kept.
 	 */
 	if (host->phys_base == 0x11240000) {
-		u32 sts;
-		writel(0, &host->base->sdc_arg);
-		writel(0x1000, &host->base->sdc_cmd);
-		setbits_le32(&host->base->emmc_cfg0, 0x2000);
-		setbits_le32(&host->base->emmc_cfg0, 2);
-		readl_poll_timeout(&host->base->emmc_sts, sts,
-				   (sts >> 4) & 1, 100000);
-		clrbits_le32(&host->base->emmc_cfg0, 0x8000);
-		sts = readl(&host->base->emmc_sts);
-		EARLY_WF("msdc:lk_emmc_proc sts=0x%x", sts);
 		writel(0, &host->base->dat_rd_dly[0]);
 		writel(0, &host->base->dat_rd_dly[1]);
 		writel(0, &host->base->dat_rd_dly[2]);
@@ -1748,9 +1752,9 @@ static void msdc_init_hw(struct msdc_host *host)
 	if (host->phys_base == 0x11240000) {
 		writel(0x403c0007, &host->base->patch_bit0);
 		writel(0xfffe4340, &host->base->patch_bit1);
-		writel(0x3488180f, &host->base->patch_bit2);
+		writel(0x348a180f, &host->base->patch_bit2);
 		writel(0x3808c169, &host->base->sdc_adv_cfg0);
-		writel(0x2d000000, (void __iomem *)((void *)host->base + 0x204));
+		writel(0x2d0b4000, (void __iomem *)((void *)host->base + 0x204));
 		if (host->top_base) {
 			writel(0xa000, &host->top_base->emmc_top_control);
 			writel(0x800, &host->top_base->emmc_top_cmd);
@@ -1953,8 +1957,10 @@ static int msdc_drv_probe(struct udevice *dev)
 	 * 400 kHz fails with RSPCRCERR (INT=0x480) since v191.
 	 * Must be applied AFTER MIN_BUS_CLK check.
 	 * See: docs/AGENTS/lk_msdc1_sd_analysis_2026-08-09.md */
-	if (host->phys_base == 0x11240000 && cfg->f_min > 100000)
-		cfg->f_min = 100000;
+	/* TEST v219: use 400 kHz like Android mmc core (max(f_min,400k)),
+	 * 100 kHz was only tried while regs were non-Android */
+	if (host->phys_base == 0x11240000 && cfg->f_min > 400000)
+		cfg->f_min = 400000;
 
 	if (cfg->f_max < cfg->f_min || cfg->f_max > host->src_clk_freq)
 		cfg->f_max = host->src_clk_freq;
@@ -2246,9 +2252,11 @@ static const struct msdc_compatible mt8183_compat = {
 	.clk_div_bits = 12,
 	.pad_tune0 = true,
 	.async_fifo = true,
+	.async_fifo_crcsts = true,
 	.data_tune = true,
 	.busy_check = true,
 	.stop_clk_fix = true,
+	.enhance_rx = true,
 };
 
 static const struct udevice_id msdc_ids[] = {
@@ -2276,3 +2284,52 @@ U_BOOT_DRIVER(mtk_sd_drv) = {
 	.plat_auto	= sizeof(struct msdc_plat),
 	.priv_auto	= sizeof(struct msdc_host),
 };
+
+/* MT6789 MSDC1 (0x11240000): full register + debug mux dump.
+ * Mirror of vendor msdc_dump_dbg_register() (mtk-mmc-dbg.c):
+ *   writel(sel, MSDC_DBG_SEL=0xa0); readl(MSDC_DBG_OUT=0xa4)
+ * for sel = 0..0x63, plus EMMC50_CFG4(0x220) mode: writel(0x27, 0xa0)
+ * then writel(i, 0x220); readl(0xa4) for i = 0..11.
+ * Diagnostic only - for comparing with Android /proc/mmc_debug dumps. */
+static int do_msdcbg(struct cmd_tbl *cmdtp, int flag, int argc,
+		     char *const argv[])
+{
+	u64 base = 0x11240000;
+	u32 sel, i;
+	u32 regs[][2] = {
+		{0x00, 0}, {0x04, 0}, {0x08, 0}, {0x0c, 0}, {0x10, 0},
+		{0x14, 0}, {0x30, 0}, {0x34, 0}, {0x38, 0}, {0x3c, 0},
+		{0x40, 0}, {0x44, 0}, {0x48, 0}, {0x4c, 0}, {0x50, 0},
+		{0x54, 0}, {0x64, 0}, {0x68, 0}, {0x7c, 0}, {0x98, 0},
+		{0x9c, 0}, {0xb0, 0}, {0xb4, 0}, {0xb8, 0}, {0x204, 0},
+		{0x208, 0}, {0x228, 0},
+	};
+
+	printf("MSDC1 (0x%llx) registers:\n", base);
+	for (i = 0; i < ARRAY_SIZE(regs); i++) {
+		regs[i][1] = readl(base + regs[i][0]);
+		if (i && (i % 4) == 0)
+			printf("\n");
+		printf("0x%03x=0x%08x ", regs[i][0], regs[i][1]);
+	}
+	printf("\nMSDC1 debug mux [sel:out]:\n");
+	for (sel = 0; sel <= 0x63; sel++) {
+		writel(sel, base + 0xa0);
+		printf("[%03x:%08x]", sel, readl(base + 0xa4));
+		if ((sel & 7) == 7)
+			printf("\n");
+		else
+			printf(" ");
+	}
+	printf("EMMC50_CFG4(0x220) mode (sel=0x27):\n");
+	writel(0x27, base + 0xa0);
+	for (i = 0; i < 12; i++) {
+		writel(i, base + 0x220);
+		printf("[%02x:%08x] ", i, readl(base + 0xa4));
+	}
+	printf("\n");
+	return 0;
+}
+
+U_BOOT_CMD(msdcbg, 1, 1, do_msdcbg, "dump MT6789 MSDC1 regs + debug mux",
+	   " - MSDC1 at 0x11240000, 0xa0/0xa4 sel/out 0..0x63 + 0x220 mode");
