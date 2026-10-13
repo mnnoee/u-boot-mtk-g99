@@ -96,6 +96,37 @@ python3 gimme-uboot.py \
 
 ---
 
+## Готовый образ / Prebuilt image
+
+Не хочется собирать — можно скачать готовый:
+
+**[`uboot-lk-x676b-v219.img`](https://github.com/mnoee/u-boot-mtk-g99/releases/tag/x676b-v219)** — 2.6 МБ,
+pre-release, только для X676B.
+
+Don't want to build? Download the prebuilt image.
+
+> ⚠️ **Перед прошивкой сохраните стоковый LK из `lk_a`/`lk_b`** — без него
+> вернуть телефон в рабочее состояние нечем, потому что сам U-Boot живёт
+> в этих разделах.
+>
+> ⚠️ **Back up the stock LK from `lk_a`/`lk_b` before flashing** — there is no way
+> back without it, since U-Boot itself is flashed to those partitions.
+
+```bash
+adb reboot bootloader
+fastboot flash lk_a uboot-lk-x676b-v219.img
+fastboot flash lk_b uboot-lk-x676b-v219.img
+fastboot reboot
+```
+
+Полные заметки релиза, включая запасной путь через mtkclient и контрольную
+сумму файла, — на странице релиза.
+
+Full release notes, including the mtkclient fallback and the file checksum, are on
+the release page.
+
+---
+
 ## Прошивка / Flashing
 
 ### Через fastboot (рекомендуется) / Via fastboot (recommended)
