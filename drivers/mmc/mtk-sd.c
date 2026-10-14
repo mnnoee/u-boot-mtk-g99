@@ -243,6 +243,17 @@
 #define DATA_INTS_MASK	\
 	(MSDC_INT_XFER_COMPL | MSDC_INT_DATTMO | MSDC_INT_DATCRCERR)
 
+/*
+ * v220: delays taken from the vendor kernel driver. A card that was just
+ * powered, or that has been reinserted, stays silent for hundreds of ms;
+ * the kernel recovers with a full rail power cycle plus a re-init of the
+ * controller, not by repeating the command.
+ */
+#define MSDC_SD_PWR_SETTLE_MS	300	/* rails on before the first command */
+#define MSDC_SD_PWR_CYCLE_MS	300	/* settle time on both cycle edges */
+#define MSDC_SD_FREE_RUN_MS	5	/* clock free run before commands */
+#define MSDC_SD_INIT_ROUNDS	3	/* power cycle retries */
+
 /* Register offset */
 struct mtk_sd_regs {
 	u32 msdc_cfg;
@@ -407,9 +418,28 @@ struct msdc_host {
 
 	enum bus_mode timing;
 
+	/*
+	 * v220: SD card power and init sequencing, modelled on the vendor
+	 * kernel driver (mtk-mmc.ko). The card rails are driven through pwrap,
+	 * not through a DM regulator, so a real power cycle has to be done in
+	 * the driver. MSDC1 only.
+	 */
+	struct udevice *dev;
+	bool sd_free_run_done;
+	u8 sd_init_rounds;
+
 	struct msdc_tune_para def_tune_para;
 	struct msdc_tune_para saved_tune_para;
 };
+
+/* v220: sequencing helpers, defined further down in the file */
+static void msdc_init_hw(struct msdc_host *host);
+static void msdc_set_mclk(struct udevice *dev, struct msdc_host *host,
+			  enum bus_mode timing, u32 hz);
+static void msdc_sd_power_cycle(struct msdc_host *host, uint delay_ms);
+static void msdc_sd_free_run(struct msdc_host *host);
+static int msdc_do_command(struct msdc_host *host, struct mmc_cmd *cmd,
+			   struct mmc_data *data);
 
 static void msdc_reset_hw(struct msdc_host *host)
 {
@@ -600,8 +630,67 @@ static bool msdc_cmd_is_ready(struct msdc_host *host)
 	return true;
 }
 
+/*
+ * v220: identification commands of the SD protocol. A timeout on one of
+ * them means the card was not ready, not that the command is broken, so
+ * the kernel power cycles the slot and starts over.
+ */
+static bool msdc_sd_cmd_needs_init_round(u32 cmdidx)
+{
+	switch (cmdidx) {
+	case MMC_CMD_GO_IDLE_STATE:
+	case MMC_CMD_SEND_OP_COND:
+	case SD_CMD_SEND_IF_COND:
+	case MMC_CMD_APP_CMD:
+	case SD_CMD_APP_SEND_OP_COND:
+		return true;
+	default:
+		return false;
+	}
+}
+
+/*
+ * v220: one recovery round, same as the kernel does when a card stops
+ * answering: power the rails down and up, let them settle, bring the
+ * controller back up and re-arm the clock. Returns 0 if another command
+ * attempt is allowed.
+ */
+static int msdc_sd_init_round(struct msdc_host *host)
+{
+	if (host->sd_init_rounds >= MSDC_SD_INIT_ROUNDS)
+		return -ETIMEDOUT;
+	host->sd_init_rounds++;
+
+	EARLY_WF("msdc:init_round:%u start", host->sd_init_rounds);
+	msdc_sd_power_cycle(host, MSDC_SD_PWR_CYCLE_MS);
+	msdc_init_hw(host);
+
+	if (host->mclk)
+		msdc_set_mclk(host->dev, host, host->timing, host->mclk);
+
+	EARLY_WF("msdc:init_round:%u done", host->sd_init_rounds);
+	return 0;
+}
+
 static int msdc_start_command(struct msdc_host *host, struct mmc_cmd *cmd,
 			      struct mmc_data *data)
+{
+	bool retry = host->phys_base == 0x11240000 &&
+		     msdc_sd_cmd_needs_init_round(cmd->cmdidx);
+	int ret;
+
+	do {
+		ret = msdc_do_command(host, cmd, data);
+
+		if (!retry || ret != -ETIMEDOUT)
+			return ret;
+		if (msdc_sd_init_round(host))
+			return ret;
+	} while (true);
+}
+
+static int msdc_do_command(struct msdc_host *host, struct mmc_cmd *cmd,
+			   struct mmc_data *data)
 {
 	u32 rawcmd;
 	u32 status;
@@ -1021,6 +1110,14 @@ static void msdc_set_mclk(struct udevice *dev,
 		writel(host->saved_tune_para.pad_tune,
 		       &host->base->pad_tune);
 	}
+
+	/*
+	 * v220: keep the clock running for a moment when the identification
+	 * clock is set up. The card needs it before it answers the first
+	 * command after power up.
+	 */
+	if (host->phys_base == 0x11240000 && hz && hz <= 1000000)
+		msdc_sd_free_run(host);
 
 	dev_dbg(dev, "sclk: %d, timing: %d\n", host->sclk, timing);
 }
@@ -1581,6 +1678,17 @@ static void msdc_init_hw(struct msdc_host *host)
 	else
 		clrbits_le32(&host->base->msdc_ps, MSDC_PS_CDEN);
 
+	/*
+	 * v220: card detect is done through the cd-gpios GPIO on MSDC1, so
+	 * follow the kernel and leave the internal detect alone as well:
+	 * clear the card detect status, do not touch CDEN.
+	 */
+	if (host->phys_base == 0x11240000) {
+		clrbits_le32(&host->base->msdc_ps, MSDC_PS_CDSTS);
+		clrbits_le32(&host->base->sdc_cfg, BIT(1));
+		clrbits_le32(&host->base->msdc_inten, BIT(1));
+	}
+
 	/* Clear all interrupts */
 	val = readl(&host->base->msdc_int);
 	writel(val, &host->base->msdc_int);
@@ -1741,25 +1849,45 @@ static void msdc_init_hw(struct msdc_host *host)
 			3 << SDC_CFG_DTOC_S);
 
 	/*
-	 * MT6789 MSDC1: final register values 1:1 with Android LIVE state
-	 * (live dump 2026-08-09: mmc0 = 11240000.mmc, SD working, DDR50/1.8V).
-	 *   PATCH_BIT0/1/2 = 0x403c0007 / 0xfffe4340 / 0x3488180f
-	 *   ADV_CFG0(0x64) = 0x3808c169, EMMC51_CFG0(0x204) = 0x2d000000
-	 *   TOP_CONTROL = 0xa000 (ENH_EN|PAD_DAT_RD_RXDLY_SEL), TOP_CMD = 0x800
-	 * Overrides intermediate mt8183-style modifications for MSDC1.
-	 * See: docs/AGENTS/mt6789_msdc1_android_live_dump_2026-08-09.md
+	 * v220: state before the first command, 1:1 with the vendor kernel
+	 * (mtk-mmc.ko msdc_init_hw + msdc_init_tune_setting).
+	 *
+	 * The previous live dump values belong to a card the kernel had
+	 * already tuned. Before CMD0/CMD8 the kernel holds different values:
+	 *   PB1 = 0xffe64309, PB2 response/CRC sense = 1, top nibble of
+	 *   PAD_TUNE0 cleared, bit29 of EMMC50_CFG0 cleared.
+	 * Live reference (after autok), kept for comparison:
+	 *   PB0/1/2 = 0x403c0007 / 0xfffe4340 / 0x348a180f
+	 *   ADV_CFG0 = 0x3808c169, TOP_CONTROL = 0xa000, TOP_CMD = 0x800
 	 */
 	if (host->phys_base == 0x11240000) {
+		clrbits_le32(&host->base->emmc50_cfg0, BIT(29));
+		clrbits_le32(&host->base->pad_tune0, 0xf0000000);
+		setbits_le32(&host->base->sdc_adv_cfg0, BIT(19));
+		if (host->top_base)
+			setbits_le32(&host->top_base->emmc_top_control,
+				     BIT(15));
+
 		writel(0x403c0007, &host->base->patch_bit0);
-		writel(0xfffe4340, &host->base->patch_bit1);
-		writel(0x348a180f, &host->base->patch_bit2);
-		writel(0x3808c169, &host->base->sdc_adv_cfg0);
-		writel(0x2d0b4000, (void __iomem *)((void *)host->base + 0x204));
-		if (host->top_base) {
-			writel(0xa000, &host->top_base->emmc_top_control);
-			writel(0x800, &host->top_base->emmc_top_cmd);
+		writel(0xffe64309, &host->base->patch_bit1);
+
+		/*
+		 * PB2: RESPWAIT = 3, response and CRC sense select = 1,
+		 * bit19. All the other bits keep their reset value.
+		 */
+		{
+			u32 pb2 = readl(&host->base->patch_bit2);
+
+			pb2 &= ~(MSDC_PB2_RESPWAIT_M | MSDC_PB2_RESPSTSENSEL_M |
+				 MSDC_PB2_CRCSTSENSEL_M);
+			pb2 |= 3 << MSDC_PB2_RESPWAIT_S;
+			pb2 |= 1 << MSDC_PB2_RESPSTSENSEL_S;
+			pb2 |= 1 << MSDC_PB2_CRCSTSENSEL_S;
+			pb2 |= BIT(19);
+			writel(pb2, &host->base->patch_bit2);
 		}
-		EARLY_WF("msdc:android_live pb0=0x%x pb1=0x%x pb2=0x%x adv0=0x%x",
+
+		EARLY_WF("msdc:init_hw:kernel pb0=0x%x pb1=0x%x pb2=0x%x adv0=0x%x",
 			 readl(&host->base->patch_bit0),
 			 readl(&host->base->patch_bit1),
 			 readl(&host->base->patch_bit2),
@@ -1882,6 +2010,64 @@ static void mtk_pwrap_write16(u16 addr, u16 val)
 	udelay(200);
 }
 
+/*
+ * v220: card rails, split out of msdc_pwrap_sd_power() so that the init
+ * retry path can power the slot down and up again the way the kernel does
+ * in msdc_ops_set_ios(). 2.9V VDD for the card, 1.8V for the IO lines.
+ */
+static void msdc_sd_set_rails(bool on)
+{
+	/* pwrap SPI clocks must stay enabled for every access */
+	writel(3, PWRAP_IFRAO0_SET);
+
+	if (on) {
+		mtk_pwrap_write16(PMIC_VMCH_VOLT, 0x0200); /* 2.9V [10:8]=2 */
+		mtk_pwrap_write16(PMIC_VMC_VOLT, 0x0400);  /* 1.8V [11:8]=4 */
+		mtk_pwrap_write16(PMIC_VMCH_EN, 0x0001);
+		mtk_pwrap_write16(PMIC_VMC_EN, 0x0001);
+	} else {
+		mtk_pwrap_write16(PMIC_VMCH_VOLT, 0x0000);
+		mtk_pwrap_write16(PMIC_VMCH_EN, 0x0000);
+		mtk_pwrap_write16(PMIC_VMC_EN, 0x0000);
+	}
+}
+
+/*
+ * v220: full rail power cycle with settle on both edges. On a cold insert
+ * the kernel only sees CMD8 answered after one of these, at roughly 250ms
+ * after the rails came back.
+ */
+static void msdc_sd_power_cycle(struct msdc_host *host, uint delay_ms)
+{
+	EARLY_W("msdc:sd_pwr_cycle:off");
+	msdc_sd_set_rails(false);
+	mdelay(delay_ms);
+
+	EARLY_W("msdc:sd_pwr_cycle:on");
+	msdc_sd_set_rails(true);
+	mdelay(delay_ms);
+
+	host->sd_free_run_done = false;
+	EARLY_WF("msdc:sd_pwr_cycle:done ps=0x%x",
+		 readl(&host->base->msdc_ps));
+}
+
+/*
+ * v220: keep the clock free running for a few ms before the first command
+ * of an init round. The kernel logs this as
+ * "enable clk free run 1ms+ for switch to 1.8v".
+ */
+static void msdc_sd_free_run(struct msdc_host *host)
+{
+	if (host->sd_free_run_done)
+		return;
+
+	setbits_le32(&host->base->msdc_cfg, MSDC_CFG_CKPDN);
+	mdelay(MSDC_SD_FREE_RUN_MS);
+	host->sd_free_run_done = true;
+	EARLY_WF("msdc:free_run:done cfg=0x%x", readl(&host->base->msdc_cfg));
+}
+
 static void msdc_pwrap_sd_power(struct msdc_host *host)
 {
 	u32 rb;
@@ -1893,10 +2079,7 @@ static void msdc_pwrap_sd_power(struct msdc_host *host)
 		 readl(PWRAP_WACS2_RDATA));
 
 	/* PMIC SD rails: 2.9V VDD + 1.8V signaling — exact Android values (android_live_dump_2026-08-08) */
-	mtk_pwrap_write16(PMIC_VMCH_VOLT, 0x0200); /* 2.9V [10:8]=2 */
-	mtk_pwrap_write16(PMIC_VMC_VOLT, 0x0400);  /* 1.8V [11:8]=4 (vqmmc constraint 1800-1950mV) */
-	mtk_pwrap_write16(PMIC_VMCH_EN, 0x0001);
-	mtk_pwrap_write16(PMIC_VMC_EN, 0x0001);
+	msdc_sd_set_rails(true);
 
 	/* Readback: first read returns previous transaction (shift-by-1) */
 	rb = mtk_pwrap_read16(PMIC_VMC_EN);
@@ -1920,6 +2103,9 @@ static int msdc_drv_probe(struct udevice *dev)
 
 	EARLY_W("msdc:probe:entry");
 	cfg->name = dev->name;
+
+	host->dev = dev;
+	host->sd_init_rounds = 0;
 
 	host->dev_comp = (struct msdc_compatible *)dev_get_driver_data(dev);
 
@@ -2045,6 +2231,13 @@ static int msdc_drv_probe(struct udevice *dev)
 	if (host->phys_base == 0x11240000) {
 		EARLY_W("msdc:probe:pwrap_sd_power");
 		msdc_pwrap_sd_power(host);
+
+		/*
+		 * v220: a freshly powered card can stay silent for hundreds of
+		 * ms, so let the rails settle before the first command.
+		 */
+		EARLY_W("msdc:probe:sd_rails_settle");
+		mdelay(MSDC_SD_PWR_SETTLE_MS);
 	}
 	EARLY_W("msdc:probe:before_init_hw");
 	msdc_init_hw(host);
@@ -2145,6 +2338,40 @@ static int msdc_ops_wait_dat0(struct udevice *dev, int state, int timeout_us)
 	return ret;
 }
 
+/*
+ * v220: the mmc core calls this after msdc_power_off() and before
+ * msdc_power_on() to rebuild the controller state. Without it a power cycle
+ * leaves the controller configured for the failed attempt.
+ */
+static int msdc_ops_reinit(struct udevice *dev)
+{
+	struct msdc_host *host = dev_get_priv(dev);
+
+	EARLY_W("msdc:ops_reinit");
+	msdc_init_hw(host);
+
+	return 0;
+}
+
+/*
+ * v220: the card rails are driven through pwrap rather than through a DM
+ * regulator, so the core power cycle has to reach the PMIC here. Both edges
+ * are given time to settle, which is what the kernel relies on to recover a
+ * card that stopped answering.
+ */
+static int msdc_ops_host_power_cycle(struct udevice *dev)
+{
+	struct msdc_host *host = dev_get_priv(dev);
+
+	if (host->phys_base != 0x11240000)
+		return 0;
+
+	EARLY_W("msdc:ops_host_power_cycle");
+	msdc_sd_power_cycle(host, MSDC_SD_PWR_CYCLE_MS);
+
+	return 0;
+}
+
 static const struct dm_mmc_ops msdc_ops = {
 	.send_cmd = msdc_ops_send_cmd,
 	.set_ios = msdc_ops_set_ios,
@@ -2153,6 +2380,8 @@ static const struct dm_mmc_ops msdc_ops = {
 #if CONFIG_IS_ENABLED(MMC_SUPPORTS_TUNING)
 	.execute_tuning = msdc_execute_tuning,
 #endif
+	.reinit = msdc_ops_reinit,
+	.host_power_cycle = msdc_ops_host_power_cycle,
 	.wait_dat0 = msdc_ops_wait_dat0,
 };
 
