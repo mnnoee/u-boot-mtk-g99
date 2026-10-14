@@ -128,3 +128,8 @@ CONFIG_WDT=y
 CONFIG_WDT_MTK=y
 CONFIG_CMD_CACHE=y
 CONFIG_TARGET_MT6878=y
+
+# Android boot: bootstd android bootmeth and FDT overlay support, so the
+# vendor dtbo overlay can be applied on top of the vendor_boot base DTB.
+CONFIG_BOOTMETH_ANDROID=y
+CONFIG_OF_LIBFDT_OVERLAY=y
