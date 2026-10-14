@@ -682,7 +682,12 @@ static int msdc_start_command(struct msdc_host *host, struct mmc_cmd *cmd,
 	do {
 		ret = msdc_do_command(host, cmd, data);
 
-		if (!retry || ret != -ETIMEDOUT)
+		/*
+		 * Both outcomes mean the card did not answer: the response is
+		 * a timeout (-ETIMEDOUT) or its CRC check fails (-EIO), which
+		 * is what this controller reports for a card that stays silent.
+		 */
+		if (!retry || (ret != -ETIMEDOUT && ret != -EIO))
 			return ret;
 		if (msdc_sd_init_round(host))
 			return ret;
@@ -1873,19 +1878,10 @@ static void msdc_init_hw(struct msdc_host *host)
 
 		/*
 		 * PB2: RESPWAIT = 3, response and CRC sense select = 1,
-		 * bit19. All the other bits keep their reset value.
+		 * bit19 and the bit the mt6789 match data asks for. Written
+		 * full width, the kernel builds this value the same way.
 		 */
-		{
-			u32 pb2 = readl(&host->base->patch_bit2);
-
-			pb2 &= ~(MSDC_PB2_RESPWAIT_M | MSDC_PB2_RESPSTSENSEL_M |
-				 MSDC_PB2_CRCSTSENSEL_M);
-			pb2 |= 3 << MSDC_PB2_RESPWAIT_S;
-			pb2 |= 1 << MSDC_PB2_RESPSTSENSEL_S;
-			pb2 |= 1 << MSDC_PB2_CRCSTSENSEL_S;
-			pb2 |= BIT(19);
-			writel(pb2, &host->base->patch_bit2);
-		}
+		writel(0x2009000e, &host->base->patch_bit2);
 
 		EARLY_WF("msdc:init_hw:kernel pb0=0x%x pb1=0x%x pb2=0x%x adv0=0x%x",
 			 readl(&host->base->patch_bit0),
@@ -2143,9 +2139,12 @@ static int msdc_drv_probe(struct udevice *dev)
 	 * 400 kHz fails with RSPCRCERR (INT=0x480) since v191.
 	 * Must be applied AFTER MIN_BUS_CLK check.
 	 * See: docs/AGENTS/lk_msdc1_sd_analysis_2026-08-09.md */
-	/* TEST v219: use 400 kHz like Android mmc core (max(f_min,400k)),
-	 * 100 kHz was only tried while regs were non-Android */
-	if (host->phys_base == 0x11240000 && cfg->f_min > 400000)
+	/*
+	 * v220 fix: the kernel identification clock is max(f_min, 400 kHz),
+	 * so raise a smaller value instead of lowering a bigger one. The
+	 * frequency sweep showed no difference, but this matches the reference.
+	 */
+	if (host->phys_base == 0x11240000 && cfg->f_min < 400000)
 		cfg->f_min = 400000;
 
 	if (cfg->f_max < cfg->f_min || cfg->f_max > host->src_clk_freq)
