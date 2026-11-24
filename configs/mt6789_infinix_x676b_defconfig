@@ -133,3 +133,11 @@ CONFIG_TARGET_MT6878=y
 # vendor dtbo overlay can be applied on top of the vendor_boot base DTB.
 CONFIG_BOOTMETH_ANDROID=y
 CONFIG_OF_LIBFDT_OVERLAY=y
+
+# OpenSSL 4.x removed ENGINE_*, host crypto tools do not link (build-only workaround)
+# CONFIG_TOOLS_KWBIMAGE is not set
+# CONFIG_TOOLS_LIBCRYPTO is not set
+CONFIG_CMD_LOADX=y
+CONFIG_CMD_LOADY=y
+CONFIG_USB_GADGET_VENDOR_NUM=0x18d1
+CONFIG_USB_GADGET_PRODUCT_NUM=0x4ee0

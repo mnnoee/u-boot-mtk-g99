@@ -33,6 +33,26 @@ int dram_init(void)
 	return 0;
 }
 
+int dram_init_banksize(void)
+{
+	/*
+	 * X676B: 8 GiB of DRAM, contiguous from 0x40000000.
+	 * gd->ram_size is deliberately capped at 2 GiB above: that is what
+	 * U-Boot itself uses (heap/stack/relocation).  The kernel needs the
+	 * real layout, otherwise it sees only 2 GiB.
+	 *   bank0: 0x40000000..0x100000000  (3 GiB)
+	 *   bank1: 0x100000000..0x240000000 (5 GiB)
+	 * Reserved regions (TEE, modem, wifi, sspm) are described in the
+	 * Linux DTB reserved-memory and subtracted by the kernel.
+	 */
+	gd->bd->bi_dram[0].start = 0x40000000ULL;
+	gd->bd->bi_dram[0].size = 0xC0000000ULL;   /* 3 GiB, up to 4 GiB */
+	gd->bd->bi_dram[1].start = 0x100000000ULL;
+	gd->bd->bi_dram[1].size = 0x140000000ULL;  /* 5 GiB, 8 GiB total */
+
+	return 0;
+}
+
 void reset_cpu(void)
 {
 	psci_system_reset();
@@ -117,6 +137,13 @@ static struct mm_region tetris_mem_map[] = {
 		.virt = 0x140000000UL,
 		.phys = 0x140000000UL,
 		.size = 0x0c0000000UL,
+		.attrs = PTE_BLOCK_MEMTYPE(MT_NORMAL) | PTE_BLOCK_OUTER_SHARE
+},
+	{
+		/* X676B: top 1 GiB (mtest check, 0x200000000..0x240000000) */
+		.virt = 0x200000000UL,
+		.phys = 0x200000000UL,
+		.size = 0x040000000UL,
 		.attrs = PTE_BLOCK_MEMTYPE(MT_NORMAL) | PTE_BLOCK_OUTER_SHARE
 	},
 	{

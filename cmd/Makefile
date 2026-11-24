@@ -202,6 +202,7 @@ obj-$(CONFIG_CMD_WDT) += wdt.o
 obj-$(CONFIG_CMD_LZMADEC) += lzmadec.o
 obj-$(CONFIG_CMD_UFS) += ufs.o
 obj-$(CONFIG_CMD_USB) += usb.o disk.o
+obj-$(CONFIG_USB_FUNCTION_ACM) += usbcon.o
 obj-$(CONFIG_CMD_VIDCONSOLE) += video.o
 
 obj-$(CONFIG_CMD_FASTBOOT) += fastboot.o

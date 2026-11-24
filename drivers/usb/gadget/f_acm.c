@@ -668,6 +668,23 @@ static int acm_stdio_stop(struct stdio_dev *dev)
 	return 0;
 }
 
+/*
+ * Tear the ACM console gadget down: g_dnl only serves one function at a
+ * time, so fastboot/UMS cannot register while the console holds the UDC.
+ */
+int drv_usbacm_exit(void)
+{
+	struct stdio_dev *dev = stdio_get_by_name("usbacm");
+
+	if (!dev)
+		return -ENODEV;
+
+	if (dev->stop)
+		dev->stop(dev);
+
+	return stdio_deregister_dev(dev, 1);
+}
+
 int drv_usbacm_init(void)
 {
 	struct stdio_dev stdio = {0};

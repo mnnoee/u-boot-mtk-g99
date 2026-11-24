@@ -23,13 +23,19 @@ int dram_init(void)
 
 int dram_init_banksize(void)
 {
-	// This is a HACK!
-	// We need to write a logic parsing the actual amount of banks from DT
+	/*
+	 * X676B: 8 GiB of DRAM, contiguous from 0x40000000.
+	 *   bank0: 0x40000000..0x100000000  (3 GiB, up to the 4 GiB boundary)
+	 *   bank1: 0x100000000..0x240000000 (5 GiB)
+	 * U-Boot itself only uses gd->ram_size (2 GiB), the kernel needs the
+	 * real layout or it sees just 2 GiB.  Reserved regions (TEE, modem,
+	 * wifi, sspm) are described in the Linux DTB and subtracted by the
+	 * kernel.
+	 */
 	gd->bd->bi_dram[0].start = gd->ram_base;
-	gd->bd->bi_dram[0].size = SZ_4G;
-
+	gd->bd->bi_dram[0].size = SZ_4G - gd->ram_base;   /* 3 GiB */
 	gd->bd->bi_dram[1].start = SZ_4G;
-	gd->bd->bi_dram[1].size = gd->ram_size;
+	gd->bd->bi_dram[1].size = 0x140000000ULL;         /* 5 GiB, 8 GiB total */
 
 	return 0;
 }

@@ -32,7 +32,7 @@
 
 	memory {
 		device_type = "memory";
-		reg = <0x0 0x40000000 0x1 0x0>;
+		reg = <0x0 0x40000000 0x2 0x0>;
 	};
 
 	reserved-memory {
@@ -213,7 +213,7 @@
 		label = "vdown";
 		linux,code = <KEY_VOLUMEDOWN>;
 		mediatek,matrix-val = <0xbfdf>;
-		mediatek,matrix-reg = <0x0c>;
+		mediatek,matrix-reg = <0x04>;
 		status = "okay";
 	};
 
@@ -223,7 +223,7 @@
 		label = "vup";
 		linux,code = <KEY_VOLUMEUP>;
 		mediatek,matrix-val = <0xdfef>;
-		mediatek,matrix-reg = <0x0c>;
+		mediatek,matrix-reg = <0x04>;
 		status = "okay";
 	};
 };

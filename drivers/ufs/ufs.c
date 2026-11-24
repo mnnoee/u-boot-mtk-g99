@@ -551,43 +551,61 @@ static inline void ufshcd_hba_start(struct ufs_hba *hba)
  */
 static int ufshcd_hba_enable(struct ufs_hba *hba)
 {
-	int retry;
-
-	if (!ufshcd_is_hba_active(hba))
-		/* change controller state to "reset state" */
-		ufshcd_hba_stop(hba);
-
-	ufshcd_ops_hce_enable_notify(hba, PRE_CHANGE);
-
-	/* start controller initialization sequence */
-	ufshcd_hba_start(hba);
+	int attempt, retry;
 
 	/*
-	 * To initialize a UFS host controller HCE bit must be set to 1.
-	 * During initialization the HCE bit value changes from 1->0->1.
-	 * When the host controller completes initialization sequence
-	 * it sets the value of HCE bit to 1. The same HCE bit is read back
-	 * to check if the controller has completed initialization sequence.
-	 * So without this delay the value HCE = 1, set in the previous
-	 * instruction might be read back.
-	 * This delay can be changed based on the controller.
+	 * The controller is often left in an intermediate state by the
+	 * previous boot stage, and on MT6789 the first HCE sequence
+	 * occasionally does not settle before the timeout (the clock gates
+	 * are enabled at probe time now, but the link still needs a second
+	 * try).  Retry the whole sequence a few times instead of failing the
+	 * probe, which used to require a manual second "ufs reset".
 	 */
-	mdelay(1);
+	for (attempt = 0; attempt < 3; attempt++) {
+		if (!ufshcd_is_hba_active(hba))
+			/* change controller state to "reset state" */
+			ufshcd_hba_stop(hba);
 
-	/* wait for the host controller to complete initialization */
+		ufshcd_ops_hce_enable_notify(hba, PRE_CHANGE);
+
+		/* start controller initialization sequence */
+		ufshcd_hba_start(hba);
+
+		/*
+		 * To initialize a UFS host controller HCE bit must be set to 1.
+		 * During initialization the HCE bit value changes from 1->0->1.
+		 * When the host controller completes initialization sequence
+		 * it sets the value of HCE bit to 1. The same HCE bit is read
+		 * back to check if the controller has completed initialization
+		 * sequence. So without this delay the value HCE = 1, set in the
+		 * previous instruction might be read back.
+		 */
+		mdelay(1);
+
+		/* wait for the host controller to complete initialization */
 #if defined(CONFIG_UFS_MEDIATEK_EL3)
-	retry = 40;
+		retry = 40;
 #else
-	retry = 10;
+		retry = 100;	/* up to 500 ms */
 #endif
-	while (ufshcd_is_hba_active(hba)) {
-		if (retry) {
-			retry--;
-		} else {
-			dev_err(hba->dev, "Controller enable failed\n");
-			return -EIO;
+		while (ufshcd_is_hba_active(hba)) {
+			if (!retry--)
+				break;
+			mdelay(5);
 		}
-		mdelay(5);
+
+		if (!ufshcd_is_hba_active(hba))
+			break;
+
+		printf("ufs: HCE did not settle (attempt %d), retrying\n",
+		       attempt + 1);
+		ufshcd_hba_stop(hba);
+		mdelay(10);
+	}
+
+	if (ufshcd_is_hba_active(hba)) {
+		dev_err(hba->dev, "Controller enable failed\n");
+		return -EIO;
 	}
 
 	/* enable UIC related interrupts */

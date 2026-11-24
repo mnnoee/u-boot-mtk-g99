@@ -338,15 +338,6 @@ static int ufs_mtk_setup_ref_clk(struct ufs_hba *hba, bool on)
 	return 0;
 }
 
-/**
- * ufs_mtk_init - bind phy with controller
- * @hba: host controller instance
- *
- * Powers up PHY enabling clocks and regulators.
- *
- * Returns -EPROBE_DEFER if binding fails, returns negative error
- * on phy power up failure and returns zero on success.
- */
 static int ufs_mtk_init(struct ufs_hba *hba)
 {
 	struct ufs_mtk_host *priv = dev_get_priv(hba->dev);
@@ -356,8 +347,6 @@ static int ufs_mtk_init(struct ufs_hba *hba)
 
 	ufs_mtk_advertise_quirks(hba);
 	ufs_mtk_init_reset(hba);
-
-	// TODO: Clocks :)
 
 // MT6789 doesn't have mphy
 #if !defined(CONFIG_TARGET_MT6789)
