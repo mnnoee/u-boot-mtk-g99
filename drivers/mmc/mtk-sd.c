@@ -1658,19 +1658,6 @@ static void msdc_init_hw(struct msdc_host *host)
 	/* Use PIO mode */
 	setbits_le32(&host->base->msdc_cfg, MSDC_CFG_PIO);
 
-	/*
-	 * MT6789 MSDC1: TEST v215 - LK eMMC boot-stop handshake DISABLED
-	 * (EMMC_CFG0(0x70) |=0x2000/|=2, wait EMMC_STS bit4, ~0x8000).
-	 * Suspect: eMMC-boot-specific, no vendor-kernel analogue for SD,
-	 * may hold CMD/DAT pads low in MSDC1 mode. Only dat_rd_dly kept.
-	 */
-	if (host->phys_base == 0x11240000) {
-		writel(0, &host->base->dat_rd_dly[0]);
-		writel(0, &host->base->dat_rd_dly[1]);
-		writel(0, &host->base->dat_rd_dly[2]);
-		writel(0, &host->base->dat_rd_dly[3]);
-	}
-
 	/* Reset */
 	msdc_reset_hw(host);
 
@@ -1704,25 +1691,17 @@ static void msdc_init_hw(struct msdc_host *host)
 	/* MT6789 MSDC1: zero PAD_TUNE like stock LK (0xf0/0xf4 = 0).
 	 * NOTE: previous hack wrote LK PATCH_BIT values (0x403c0007/0xffe64309)
 	 * into PAD_TUNE0/1 - that was wrong (LK/Android write 0 there). */
-	if (host->phys_base == 0x11240000) {
-		if (host->top_base) {
-			writel(0, &host->top_base->emmc_top_control);
-			writel(0, &host->top_base->emmc_top_cmd);
-		}
-		EARLY_WF("msdc:pad_tune0:before=0x%x", readl(&host->base->pad_tune0));
-		writel(0, &host->base->pad_tune0);
-		EARLY_WF("msdc:pad_tune0:after=0x%x", readl(&host->base->pad_tune0));
-		EARLY_WF("msdc:pad_tune1:before=0x%x", readl(&host->base->pad_tune1));
-		writel(0, &host->base->pad_tune1);
-		EARLY_WF("msdc:pad_tune1:after=0x%x", readl(&host->base->pad_tune1));
-		EARLY_W("msdc:init_hw:mt6789_pad_tune_zero");
+	/*
+	 * Follow the kernel here: zero only the EMMC top registers (the
+	 * data_tune block below programs the RX delay selectors) and leave
+	 * PAD_TUNE0/1 alone.  Zeroing PAD_TUNE was an earlier guess copied
+	 * from LK; the kernel never does it for this controller.
+	 */
+	if (host->top_base) {
+		writel(0, &host->top_base->emmc_top_control);
+		writel(0, &host->top_base->emmc_top_cmd);
 	} else {
-		if (host->top_base) {
-			writel(0, &host->top_base->emmc_top_control);
-			writel(0, &host->top_base->emmc_top_cmd);
-		} else {
-			writel(0, tune_reg);
-		}
+		writel(0, tune_reg);
 	}
 	writel(0, &host->base->msdc_iocon);
 
