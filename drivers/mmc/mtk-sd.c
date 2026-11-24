@@ -1936,15 +1936,16 @@ static void msdc_enable_f26m_crystal(void)
 
 static void msdc_enable_infra_clocks(void)
 {
-	/* Enable CLK_IFRAO_MSDC1 (hclk) - bit 4 in infra_ao1 */
-	/* infra_ao1: set=0x88, clr=0x8C, gates are active-low: write CLR to enable */
-	EARLY_WF("msdc:infra_clks:before sta=0x%x (set=0x88 clr=0x8c)",
-		 readl(0x10001094));
-	writel(BIT(4) | BIT(16), 0x1000108C);  /* CLR register */
-	EARLY_WF("msdc:infra_clks:after sta=0x%x", readl(0x10001094));
-	EARLY_W("msdc:infra_clks:enabled");
+	/*
+	 * The IFRAO gate status bits are active low on this SoC: STA=0 means
+	 * the clock is running.  Writing 1 to the SET register gates the
+	 * clock off and the MSDC1 block then reads back as zero, which is
+	 * exactly what happened while testing this.  Keep the CLR write so
+	 * the gates stay enabled, and leave the topckgen mux gate (0x80 bit
+	 * 15) alone for the same reason.
+	 */
+	writel(BIT(4) | BIT(16), (void *)0x1000108c);  /* IFRAO1 CLR = enable */
 }
-
 static void msdc_ungate_clock(struct msdc_host *host)
 {
 	EARLY_WF("msdc:ungate:0 ifrao1=0x%x cfg4=0x%x pllcon=0x%x pllpwr=0x%x",
@@ -2018,7 +2019,12 @@ static void msdc_sd_set_rails(bool on)
 
 	if (on) {
 		mtk_pwrap_write16(PMIC_VMCH_VOLT, 0x0200); /* 2.9V [10:8]=2 */
-		mtk_pwrap_write16(PMIC_VMC_VOLT, 0x0400);  /* 1.8V [11:8]=4 */
+		/*
+		 * 3.3 V for the I/O lines during identification.  Android
+		 * only ends up at 1.8 V after the UHS switch; starting the
+		 * card at 1.8 V makes CMD8 time out (observed on this board).
+		 */
+		mtk_pwrap_write16(PMIC_VMC_VOLT, 0x0d00);  /* 3.3V [11:8]=0xD */
 		mtk_pwrap_write16(PMIC_VMCH_EN, 0x0001);
 		mtk_pwrap_write16(PMIC_VMC_EN, 0x0001);
 	} else {
