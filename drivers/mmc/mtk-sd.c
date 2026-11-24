@@ -1845,22 +1845,29 @@ static void msdc_init_hw(struct msdc_host *host)
 	 *   ADV_CFG0 = 0x3808c169, TOP_CONTROL = 0xa000, TOP_CMD = 0x800
 	 */
 	if (host->phys_base == 0x11240000) {
+		/*
+		 * v258: take the register values straight from the working
+		 * kernel on this board (sampled with the card active):
+		 *   PATCH_BIT  0x403c0446
+		 *   PATCH_BIT1 0xffff4309
+		 *   PATCH_BIT2 0x3009000e  (CRC status sense enabled)
+		 *   SDC_ADV_CFG0 0x3800e969
+		 * The earlier values were taken from a different dump and did
+		 * not match what the kernel actually runs with.
+		 */
 		clrbits_le32(&host->base->emmc50_cfg0, BIT(29));
 		clrbits_le32(&host->base->pad_tune0, 0xf0000000);
-		setbits_le32(&host->base->sdc_adv_cfg0, BIT(19));
+		writel(0x3800e969, &host->base->sdc_adv_cfg0);
 		if (host->top_base)
 			setbits_le32(&host->top_base->emmc_top_control,
 				     BIT(15));
 
-		writel(0x403c0007, &host->base->patch_bit0);
-		writel(0xffe64309, &host->base->patch_bit1);
+		writel(0x403c0446, &host->base->patch_bit0);
+		writel(0xffff4309, &host->base->patch_bit1);
+		writel(0x3009000e, &host->base->patch_bit2);
 
-		/*
-		 * PB2: RESPWAIT = 3, response and CRC sense select = 1,
-		 * bit19 and the bit the mt6789 match data asks for. Written
-		 * full width, the kernel builds this value the same way.
-		 */
-		writel(0x2009000e, &host->base->patch_bit2);
+		/* the kernel runs this controller without SDIO */
+		clrbits_le32(&host->base->sdc_cfg, SDC_CFG_SDIO);
 
 		EARLY_WF("msdc:init_hw:kernel pb0=0x%x pb1=0x%x pb2=0x%x adv0=0x%x",
 			 readl(&host->base->patch_bit0),
