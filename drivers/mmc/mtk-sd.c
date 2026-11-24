@@ -2157,61 +2157,15 @@ static int msdc_drv_probe(struct udevice *dev)
 #endif
 
 	/*
-	 * Configure MSDC1 pins (GPIO 71-76) for SD card slot.
-	 * Mode registers: 8 pins per 32-bit register (4 bits/pin).
-	 * Function 1 = MSDC1 alternate function.
-	 * Bank: iocfg_rt (0x11EA0000) for IES/SMT/PUPD/DRV.
+	 * Do not configure the SD pads by hand here.  MT6789 uses the newer
+	 * MediaTek pinctrl layout, where every pin has its own fields in the
+	 * iocfg bank (PU, PD, DRV, IES, SMT, ...) described by the
+	 * mt6789_pin_*_range tables.  The block that used to live here wrote
+	 * 0x11EA00B0/0x11EA00E0/0x11EA00F0/0x11EA0030 with the old MTK
+	 * layout, so it touched pins 64-66 instead of the SD pins 71-76 and
+	 * had no effect at all.  The device tree state (mmc1-pins) is the
+	 * same one the working mainline kernel applies, so rely on it.
 	 */
-	if (host->dev_comp->use_internal_cd == 0) {
-		u32 val;
-
-		/* Mode: GPIO 71 (CLK) = function 1 */
-		val = readl(0x10005380);
-		val &= ~(0xF << 28);
-		val |= (1 << 28);
-		writel(val, 0x10005380);
-
-		/* Mode: GPIO 72-76 (CMD, DAT0-3) = function 1 */
-		val = readl(0x10005390);
-		val &= ~0xFFFF;
-		val |= 0x11111;
-		writel(val, 0x10005390);
-
-		/* IES: enable input for GPIO 71-76 (bits 1-6) */
-		val = readl(0x11EA0080);
-		val |= 0x7E;
-		writel(val, 0x11EA0080);
-
-		/* SMT: enable SMT for GPIO 71-76 (bits 16-21) */
-		val = readl(0x11EA0140);
-		val |= 0x3F0000;
-		writel(val, 0x11EA0140);
-
-		/* PUPD: CLK(bit0)=pull-down, CMD/DAT(bit1-5)=pull-up (vendor 0x3E) */
-		val = readl(0x11EA00B0);
-		val &= ~0x3F;
-		val |= 0x3E;
-		writel(val, 0x11EA00B0);
-
-		/* R0: CLK=0 (no 24K pull), CMD/DAT=1 (24K pull) (vendor 0x3E) */
-		val = readl(0x11EA00E0);
-		val &= ~0x3F;
-		val |= 0x3E;
-		writel(val, 0x11EA00E0);
-
-		/* R1: CLK=1 (4K pull), CMD/DAT=0 (vendor 0x01) */
-		val = readl(0x11EA00F0);
-		val &= ~0x3F;
-		val |= 0x01;
-		writel(val, 0x11EA00F0);
-
-		/* DRV: all fields GPIO71-76 = 3 (vendor 0x036DB600) */
-		writel(0x036DB600, 0x11EA0030);
-
-		EARLY_WF("msdc:pinctrl:vendor pupd=0x%x r0=0x%x r1=0x%x drv=0x%x",
-			 readl(0x11EA00B0), readl(0x11EA00E0), readl(0x11EA00F0),
-			 readl(0x11EA0030));
-	}
 
 	EARLY_W("msdc:probe:before_ungate");
 	msdc_ungate_clock(host);

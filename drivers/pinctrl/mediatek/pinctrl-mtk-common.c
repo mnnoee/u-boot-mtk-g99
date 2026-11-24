@@ -303,6 +303,30 @@ static const char *mtk_get_function_name(struct udevice *dev,
 	return priv->soc->funcs[selector].name;
 }
 
+/*
+ * MT6789 and the other SoCs of this family describe pin multiplexing in the
+ * device tree with the kernel binding: one cell per pin,
+ *   pinmux = <((pin) << 8) | (function)>
+ * which the generic pinctrl uclass hands over through ->pinmux_property_set().
+ * Without this callback the property is silently skipped (the uclass only
+ * looks at "pins"/"groups" otherwise), so pins like the SD slot ends up on
+ * whatever function the preloader left behind.  Return the pin number as the
+ * selector so the pin configuration properties of the same node (pull-up,
+ * drive strength, ...) are applied to that pin.
+ */
+static int mtk_pinmux_property_set(struct udevice *dev, u32 pinmux_group)
+{
+	unsigned int pin = (pinmux_group >> 8) & 0xffff;
+	unsigned int func = pinmux_group & 0xff;
+	int err;
+
+	err = mtk_hw_set_value(dev, pin, PINCTRL_PIN_REG_MODE, func);
+	if (err)
+		return err;
+
+	return pin;
+}
+
 static int mtk_pinmux_set(struct udevice *dev, unsigned int pin_selector,
 			  unsigned int func_selector)
 {
@@ -661,6 +685,7 @@ const struct pinctrl_ops mtk_pinctrl_ops = {
 	.get_function_name = mtk_get_function_name,
 	.pinmux_set = mtk_pinmux_set,
 	.pinmux_group_set = mtk_pinmux_group_set,
+	.pinmux_property_set = mtk_pinmux_property_set,
 #if CONFIG_IS_ENABLED(PINCONF)
 	.pinconf_num_params = ARRAY_SIZE(mtk_conf_params),
 	.pinconf_params = mtk_conf_params,

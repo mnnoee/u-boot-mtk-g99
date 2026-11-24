@@ -418,16 +418,26 @@
 			builtin-cd = <0>;
 		};
 
+		/*
+		 * Same configuration as the working mainline kernel runs on this
+		 * board (mt6789-infinix-x676b.dts: pins-cmd-dat + pins-clk).
+		 *
+		 * drive-strength must be 4 mA (2/4/6... are the only valid
+		 * steps): 3 mA does not pass the validation and the whole group
+		 * is skipped, leaving the SD lines without pull-ups.  The kernel
+		 * device tree carries the same warning.
+		 */
 		mmc1_pins_default: mmc1-pins {
 			pins-cmd-dat {
 				pinmux = <0x4901 0x4a01 0x4b01 0x4c01 0x4801>;
 				input-enable;
-				drive-strength = <3>;
+				drive-strength = <4>;
 				bias-pull-up;
 			};
+
 			pins-clk {
 				pinmux = <0x4701>;
-				drive-strength = <3>;
+				drive-strength = <4>;
 				bias-pull-down;
 			};
 		};
