@@ -213,7 +213,7 @@
 		label = "vdown";
 		linux,code = <KEY_VOLUMEDOWN>;
 		mediatek,matrix-val = <0xbfdf>;
-		mediatek,matrix-reg = <0x04>;
+		mediatek,matrix-reg = <0x0c>;
 		status = "okay";
 	};
 
@@ -223,7 +223,7 @@
 		label = "vup";
 		linux,code = <KEY_VOLUMEUP>;
 		mediatek,matrix-val = <0xdfef>;
-		mediatek,matrix-reg = <0x04>;
+		mediatek,matrix-reg = <0x0c>;
 		status = "okay";
 	};
 };

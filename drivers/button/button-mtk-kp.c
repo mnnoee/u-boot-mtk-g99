@@ -68,37 +68,6 @@ struct button_mtk_kp_priv {
 	u32 matrix_reg;
 };
 
-static void mt6789_enable_essential_clocks(void)
-{
-	u32 val;
-
-	/* IFRAO0: UART0, I2C */
-	val = readl(INFRACFG_AO_BASE + IFRAO0_SET_OFS);
-	val |= CLK_IFRAO_I2C_PSEUDO | CLK_IFRAO_UART0;
-	writel(val, INFRACFG_AO_BASE + IFRAO0_SET_OFS);
-
-	/* IFRAO1: SPI0, MSDC0, MSDC0_SRC */
-	val = readl(INFRACFG_AO_BASE + IFRAO1_SET_OFS);
-	val |= CLK_IFRAO_SPI0 | CLK_IFRAO_MSDC0 | CLK_IFRAO_MSDC0_SRC;
-	writel(val, INFRACFG_AO_BASE + IFRAO1_SET_OFS);
-
-	/* IFRAO2: SSUSB (USB), UFS, UFS_AES */
-	val = readl(INFRACFG_AO_BASE + IFRAO2_SET_OFS);
-	val |= CLK_IFRAO_SSUSB | CLK_IFRAO_UFS | CLK_IFRAO_UFS_AES;
-	writel(val, INFRACFG_AO_BASE + IFRAO2_SET_OFS);
-
-	/* IFRAO4: Keypad */
-	val = readl(INFRACFG_AO_BASE + IFRAO4_SET_OFS);
-	val |= CLK_IFRAO_KP;
-	writel(val, INFRACFG_AO_BASE + IFRAO4_SET_OFS);
-
-	debug("MT6789 clocks: IFRAO0=0x%08x IFRAO1=0x%08x IFRAO2=0x%08x IFRAO4=0x%08x\n",
-	      readl(INFRACFG_AO_BASE + IFRAO0_SET_OFS),
-	      readl(INFRACFG_AO_BASE + IFRAO1_SET_OFS),
-	      readl(INFRACFG_AO_BASE + IFRAO2_SET_OFS),
-	      readl(INFRACFG_AO_BASE + IFRAO4_SET_OFS));
-}
-
 static enum button_state_t button_mtk_kp_get_state(struct udevice *dev)
 {
 	struct button_mtk_kp_priv *priv = dev_get_priv(dev);
@@ -131,26 +100,19 @@ static int button_mtk_kp_probe(struct udevice *dev)
 	struct button_mtk_kp_priv *priv = dev_get_priv(dev);
 	fdt_addr_t addr;
 
-	printf("KP: probe start\n");
-
 	addr = dev_read_addr(dev);
-	printf("KP: addr=0x%llx\n", (unsigned long long)addr);
-	if (addr == FDT_ADDR_T_NONE) {
-		printf("KP: bad addr\n");
+	if (addr == FDT_ADDR_T_NONE)
 		return -EINVAL;
-	}
 
-	printf("KP: ioremap...\n");
 	priv->base = devm_ioremap(dev, addr, 0x100);
-	printf("KP: base=%p\n", priv->base);
 	if (!priv->base)
 		return -ENOMEM;
 
-	printf("KP: reading props...\n");
 	priv->matrix_val = dev_read_u32_default(dev, "mediatek,matrix-val", 0);
 	priv->matrix_reg = dev_read_u32_default(dev, "mediatek,matrix-reg", KP_MEM3);
-	printf("KP: code=%d reg=0x%x val=0x%04x\n",
-	      priv->linux_code, priv->matrix_reg, priv->matrix_val);
+
+	debug("MTK KP: %s reg=0x%x val=0x%04x\n", dev->name,
+	      priv->matrix_reg, priv->matrix_val);
 
 	return 0;
 }
